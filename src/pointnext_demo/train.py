@@ -65,11 +65,13 @@ def stratified_split(dataset: ModelNetLikeDataset, val_ratio: float, seed: int) 
     return train_indices, val_indices
 
 
-def run_epoch(model, loader, criterion, optimizer, device, train: bool) -> tuple[float, float]:
+def run_epoch(model, loader, criterion, optimizer, device, train: bool, num_classes: int) -> tuple[float, float, float]:
     model.train(train)
     loss_meter = AverageMeter()
     correct = 0
     total = 0
+    class_correct = torch.zeros(num_classes, dtype=torch.long)
+    class_total = torch.zeros(num_classes, dtype=torch.long)
     context = torch.enable_grad() if train else torch.no_grad()
     with context:
         pbar = tqdm(loader, leave=False, desc="train" if train else "valid")
@@ -85,9 +87,21 @@ def run_epoch(model, loader, criterion, optimizer, device, train: bool) -> tuple
             pred = logits.argmax(dim=1)
             correct += (pred == labels).sum().item()
             total += labels.numel()
+            batch_correct = (pred == labels).detach().cpu()
+            batch_labels = labels.detach().cpu()
+            for class_idx in range(num_classes):
+                mask = batch_labels == class_idx
+                class_total[class_idx] += mask.sum()
+                class_correct[class_idx] += batch_correct[mask].sum()
             loss_meter.update(loss.item(), labels.numel())
-            pbar.set_postfix(loss=f"{loss_meter.avg:.4f}", acc=f"{correct / max(total, 1):.4f}")
-    return loss_meter.avg, correct / max(total, 1)
+            instance_acc = correct / max(total, 1)
+            seen = class_total > 0
+            class_acc = (class_correct[seen].float() / class_total[seen].float()).mean().item() if seen.any() else 0.0
+            pbar.set_postfix(loss=f"{loss_meter.avg:.4f}", inst=f"{instance_acc:.4f}", cls=f"{class_acc:.4f}")
+    instance_acc = correct / max(total, 1)
+    seen = class_total > 0
+    class_acc = (class_correct[seen].float() / class_total[seen].float()).mean().item() if seen.any() else 0.0
+    return loss_meter.avg, instance_acc, class_acc
 
 
 def main() -> None:
@@ -153,26 +167,35 @@ def main() -> None:
         print(f"gpu={torch.cuda.get_device_name(0)}")
 
     best_acc = 0.0
+    best_class_acc = 0.0
     history = []
     for epoch in range(1, args.epochs + 1):
-        train_loss, train_acc = run_epoch(model, train_loader, criterion, optimizer, device, train=True)
-        val_loss, val_acc = run_epoch(model, val_loader, criterion, optimizer, device, train=False)
+        train_loss, train_acc, train_class_acc = run_epoch(
+            model, train_loader, criterion, optimizer, device, train=True, num_classes=len(labels)
+        )
+        val_loss, val_acc, val_class_acc = run_epoch(
+            model, val_loader, criterion, optimizer, device, train=False, num_classes=len(labels)
+        )
         scheduler.step()
         row = {
             "epoch": epoch,
             "train_loss": train_loss,
             "train_acc": train_acc,
+            "train_class_acc": train_class_acc,
             "val_loss": val_loss,
             "val_acc": val_acc,
+            "val_class_acc": val_class_acc,
             "lr": scheduler.get_last_lr()[0],
         }
         history.append(row)
         print(
-            f"epoch {epoch:03d}: train_loss={train_loss:.4f} train_acc={train_acc:.4f} "
-            f"val_loss={val_loss:.4f} val_acc={val_acc:.4f}"
+            f"epoch {epoch:03d}: train_loss={train_loss:.4f} "
+            f"train_instance_acc={train_acc:.4f} train_class_acc={train_class_acc:.4f} "
+            f"val_loss={val_loss:.4f} val_instance_acc={val_acc:.4f} val_class_acc={val_class_acc:.4f}"
         )
         if val_acc >= best_acc:
             best_acc = val_acc
+            best_class_acc = val_class_acc
             save_checkpoint(
                 out_dir / "best.pt",
                 {
@@ -184,12 +207,14 @@ def main() -> None:
                     "train_indices": train_indices,
                     "val_indices": val_indices,
                     "best_acc": best_acc,
+                    "best_class_acc": best_class_acc,
                     "epoch": epoch,
                 },
             )
 
-    save_json(out_dir / "history.json", {"history": history, "best_acc": best_acc})
-    print(f"best validation accuracy: {best_acc:.4f}")
+    save_json(out_dir / "history.json", {"history": history, "best_acc": best_acc, "best_class_acc": best_class_acc})
+    print(f"best validation instance accuracy: {best_acc:.4f}")
+    print(f"best validation class accuracy: {best_class_acc:.4f}")
 
 
 if __name__ == "__main__":
