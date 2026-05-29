@@ -11,27 +11,45 @@ from tqdm import tqdm
 
 from .data import ModelNetLikeDataset, collate_batch
 from .model import build_model
-from .utils import load_labels, set_seed
+from .utils import load_config, load_labels, set_seed
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Predict ModelNet40 classes and export CSV.")
-    parser.add_argument("--data-root", default="modelnet40_train_data/modelnet40_normal_resampled")
-    parser.add_argument("--split", default="test")
+    parser.add_argument("--config", default="configs/pointnext_s_c64.yaml")
+    parser.add_argument("--data-root", default=None)
+    parser.add_argument("--split", default=None)
     parser.add_argument("--checkpoint", required=True)
-    parser.add_argument("--labels", default="labels/modelnet40.txt")
-    parser.add_argument("--out-csv", required=True)
+    parser.add_argument("--labels", default=None)
+    parser.add_argument("--out-csv", default=None)
     parser.add_argument("--variant", choices=["s", "b"], default=None)
     parser.add_argument("--width", type=int, default=None)
     parser.add_argument("--nsample", type=int, default=None)
     parser.add_argument("--num-points", type=int, default=None)
     parser.add_argument("--use-normals", dest="use_normals", action="store_true", default=None)
     parser.add_argument("--no-normals", dest="use_normals", action="store_false")
-    parser.add_argument("--votes", type=int, default=10)
-    parser.add_argument("--batch-size", type=int, default=16)
-    parser.add_argument("--num-workers", type=int, default=0)
-    parser.add_argument("--seed", type=int, default=42)
-    return parser.parse_args()
+    parser.add_argument("--votes", type=int, default=None)
+    parser.add_argument("--batch-size", type=int, default=None)
+    parser.add_argument("--num-workers", type=int, default=None)
+    parser.add_argument("--seed", type=int, default=None)
+    args = parser.parse_args()
+    config = {
+        "data_root": "modelnet40_train_data/modelnet40_normal_resampled",
+        "split": "test",
+        "labels": "labels/modelnet40.txt",
+        "out_csv": "submit.csv",
+        "votes": 10,
+        "batch_size": 16,
+        "num_workers": 0,
+        "seed": 42,
+    }
+    train_config = load_config(args.config)
+    config.update({key: value for key, value in train_config.items() if key in config})
+    for key, value in vars(args).items():
+        if key != "config" and value is not None:
+            config[key] = value
+    config["config"] = args.config
+    return argparse.Namespace(**config)
 
 
 def main() -> None:

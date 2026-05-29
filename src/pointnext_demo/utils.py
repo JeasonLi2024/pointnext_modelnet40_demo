@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import yaml
 
 
 def set_seed(seed: int) -> None:
@@ -19,6 +20,17 @@ def load_labels(labels_path: str | Path) -> list[str]:
     path = Path(labels_path)
     with path.open("r", encoding="utf-8") as f:
         return [line.strip() for line in f if line.strip()]
+
+
+def load_config(config_path: str | Path | None) -> dict:
+    if config_path is None:
+        return {}
+    path = Path(config_path)
+    with path.open("r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    if not isinstance(data, dict):
+        raise ValueError(f"{path} should contain a YAML mapping.")
+    return data
 
 
 def save_checkpoint(path: str | Path, payload: dict) -> None:

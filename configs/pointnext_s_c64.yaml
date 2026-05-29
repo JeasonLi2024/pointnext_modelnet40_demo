@@ -1,0 +1,61 @@
+# PointNeXt-S/C64 configuration for ModelNet40.
+# Paths are relative to the project root unless an absolute path is provided.
+
+# Dataset root. Current project stores only the training split directly as
+# modelnet40_normal_resampled/<class_name>/*.txt.
+data_root: modelnet40_train_data/modelnet40_normal_resampled
+
+# Label file, one class name per line.
+labels: labels/modelnet40.txt
+
+# Output directory for checkpoints and training history.
+out_dir: runs/pointnext_s_c64_normals
+
+# Model variant. Use "s" first; try "b" only if GPU memory is enough.
+variant: s
+
+# Channel width. 64 means PointNeXt-S/C64. For 8GB GPU memory, 64 is the
+# recommended accuracy/memory balance. Use 32 or 48 if out of memory.
+width: 64
+
+# kNN neighborhood size for local grouping. 32 is the standard safe default.
+nsample: 32
+
+# Number of sampled points per object. 1024 is the recommended default for
+# ModelNet40; 2048 may improve accuracy but uses more memory.
+num_points: 1024
+
+# Use normals nx,ny,nz in addition to xyz. Keep true for this dataset.
+use_normals: true
+
+# Random Y-axis rotation augmentation. Disabled by default because PointNeXt
+# ModelNet40 configs often avoid rotation for aligned objects.
+random_rotate: false
+
+# Training epochs. Increase if validation metrics are still improving.
+epochs: 600
+
+# Batch size. RTX 4070 Laptop 8GB should start from 16; try 24 if memory allows.
+batch_size: 16
+
+# AdamW learning rate. Typical range: 0.0005-0.002.
+lr: 0.001
+
+# AdamW weight decay. 0.05 follows PointNeXt/OpenPoints-style settings.
+weight_decay: 0.05
+
+# Label smoothing for better generalization. Typical range: 0.1-0.2.
+label_smoothing: 0.2
+
+# Validation split ratio from the training set. Used because no independent
+# test split is currently available.
+val_ratio: 0.15
+
+# Windows users should keep 0 unless DataLoader multiprocessing is verified.
+num_workers: 0
+
+# Random seed for reproducible train/validation split and initialization.
+seed: 42
+
+# Fail fast if CUDA is unavailable. Keep true for formal training.
+require_cuda: true

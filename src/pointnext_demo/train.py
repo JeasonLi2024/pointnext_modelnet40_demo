@@ -11,31 +11,60 @@ from tqdm import tqdm
 
 from .data import ModelNetLikeDataset, collate_batch
 from .model import build_model
-from .utils import AverageMeter, load_labels, save_checkpoint, save_json, set_seed
+from .utils import AverageMeter, load_config, load_labels, save_checkpoint, save_json, set_seed
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train PointNeXt-style classifier for ModelNet40.")
-    parser.add_argument("--data-root", default="modelnet40_train_data/modelnet40_normal_resampled")
-    parser.add_argument("--labels", default="labels/modelnet40.txt")
-    parser.add_argument("--out-dir", default="runs/pointnext_s_c64_normals")
-    parser.add_argument("--variant", choices=["s", "b"], default="s")
-    parser.add_argument("--width", type=int, default=64)
-    parser.add_argument("--nsample", type=int, default=32)
-    parser.add_argument("--num-points", type=int, default=1024)
-    parser.add_argument("--use-normals", dest="use_normals", action="store_true", default=True)
+    parser.add_argument("--config", default="configs/pointnext_s_c64.yaml")
+    parser.add_argument("--data-root", default=None)
+    parser.add_argument("--labels", default=None)
+    parser.add_argument("--out-dir", default=None)
+    parser.add_argument("--variant", choices=["s", "b"], default=None)
+    parser.add_argument("--width", type=int, default=None)
+    parser.add_argument("--nsample", type=int, default=None)
+    parser.add_argument("--num-points", type=int, default=None)
+    parser.add_argument("--use-normals", dest="use_normals", action="store_true", default=None)
     parser.add_argument("--no-normals", dest="use_normals", action="store_false")
-    parser.add_argument("--random-rotate", action="store_true")
-    parser.add_argument("--epochs", type=int, default=600)
-    parser.add_argument("--batch-size", type=int, default=32)
-    parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--weight-decay", type=float, default=5e-2)
-    parser.add_argument("--label-smoothing", type=float, default=0.2)
-    parser.add_argument("--val-ratio", type=float, default=0.15)
-    parser.add_argument("--num-workers", type=int, default=0)
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--require-cuda", action="store_true", help="Fail fast unless CUDA GPU training is available.")
-    return parser.parse_args()
+    parser.add_argument("--random-rotate", dest="random_rotate", action="store_true", default=None)
+    parser.add_argument("--no-random-rotate", dest="random_rotate", action="store_false")
+    parser.add_argument("--epochs", type=int, default=None)
+    parser.add_argument("--batch-size", type=int, default=None)
+    parser.add_argument("--lr", type=float, default=None)
+    parser.add_argument("--weight-decay", type=float, default=None)
+    parser.add_argument("--label-smoothing", type=float, default=None)
+    parser.add_argument("--val-ratio", type=float, default=None)
+    parser.add_argument("--num-workers", type=int, default=None)
+    parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--require-cuda", dest="require_cuda", action="store_true", default=None)
+    parser.add_argument("--allow-cpu", dest="require_cuda", action="store_false")
+    args = parser.parse_args()
+    config = {
+        "data_root": "modelnet40_train_data/modelnet40_normal_resampled",
+        "labels": "labels/modelnet40.txt",
+        "out_dir": "runs/pointnext_s_c64_normals",
+        "variant": "s",
+        "width": 64,
+        "nsample": 32,
+        "num_points": 1024,
+        "use_normals": True,
+        "random_rotate": False,
+        "epochs": 600,
+        "batch_size": 16,
+        "lr": 1e-3,
+        "weight_decay": 5e-2,
+        "label_smoothing": 0.2,
+        "val_ratio": 0.15,
+        "num_workers": 0,
+        "seed": 42,
+        "require_cuda": True,
+    }
+    config.update(load_config(args.config))
+    for key, value in vars(args).items():
+        if key != "config" and value is not None:
+            config[key] = value
+    config["config"] = args.config
+    return argparse.Namespace(**config)
 
 
 def stratified_split(dataset: ModelNetLikeDataset, val_ratio: float, seed: int) -> tuple[list[int], list[int]]:
