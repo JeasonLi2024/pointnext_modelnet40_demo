@@ -58,6 +58,28 @@ num_workers: 8
 # Random seed for reproducible train/validation split and initialization.
 seed: 42
 
-# Enable GPU acceleration when CUDA is available. If CUDA is unavailable, the
-# code falls back to CPU automatically.
+# Enable GPU acceleration when CUDA is unavailable, the code falls back to CPU.
 use_gpu: true
+
+# --- Prediction (python -m src.pointnext_demo.predict --config ...) ---
+# Test set root; structure: <test_data_root>/test/<class>/*.txt
+test_data_root: modelnet40_test_data/modelnet40_normal_resampled
+test_split: test
+
+# Checkpoint for inference. If omitted, defaults to <out_dir>/best.pt
+checkpoint: runs/pointnext_s_c64_normals/best.pt
+
+# Submission CSV: column1=id, column2=class name, comma-separated, no header
+out_csv: runs/pointnext_s_c64_normals/赛道1-李文睿2023210965-王俊涛2023210952-孙奥翔2023210958.csv
+
+# Test-time voting (Y-axis rotation average). More votes = slower but often more stable.
+votes: 10
+
+# Inference-only point count (can differ from training num_points without retraining).
+predict_num_points: 1024
+
+# Inference batch size (2048 points needs less than training batch_size on GPU).
+predict_batch_size: 64
+
+# Print Test Instance / Class Accuracy when test folders include class labels.
+eval_on_test: true

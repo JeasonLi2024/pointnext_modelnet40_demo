@@ -87,16 +87,22 @@ def rotate_y(points: np.ndarray) -> np.ndarray:
     return points
 
 
-def augment(points: np.ndarray, random_rotate: bool = False) -> np.ndarray:
+def augment(points: np.ndarray, random_rotate: bool = False, strength: str = "normal") -> np.ndarray:
     if random_rotate:
         points = rotate_y(points)
     else:
         points = points.copy()
-    scale = np.random.uniform(0.8, 1.2)
-    shift = np.random.uniform(-0.1, 0.1, size=(1, 3)).astype(np.float32)
-    jitter = np.clip(0.01 * np.random.randn(*points[:, :3].shape), -0.05, 0.05).astype(np.float32)
+    if strength == "strong":
+        scale = np.random.uniform(0.75, 1.25)
+        shift = np.random.uniform(-0.15, 0.15, size=(1, 3)).astype(np.float32)
+        jitter = np.clip(0.015 * np.random.randn(*points[:, :3].shape), -0.06, 0.06).astype(np.float32)
+        keep_ratio = np.random.uniform(0.825, 1.0)
+    else:
+        scale = np.random.uniform(0.8, 1.2)
+        shift = np.random.uniform(-0.1, 0.1, size=(1, 3)).astype(np.float32)
+        jitter = np.clip(0.01 * np.random.randn(*points[:, :3].shape), -0.05, 0.05).astype(np.float32)
+        keep_ratio = np.random.uniform(0.875, 1.0)
     points[:, :3] = points[:, :3] * scale + shift + jitter
-    keep_ratio = np.random.uniform(0.875, 1.0)
     keep = max(8, int(points.shape[0] * keep_ratio))
     if keep < points.shape[0]:
         idx = np.random.choice(points.shape[0], keep, replace=False)
@@ -116,6 +122,7 @@ class ModelNetLikeDataset(Dataset):
         use_normals: bool = True,
         train: bool = False,
         random_rotate: bool = False,
+        augment_strength: str = "normal",
     ) -> None:
         self.data_root = Path(data_root)
         self.split = split
@@ -125,6 +132,7 @@ class ModelNetLikeDataset(Dataset):
         self.use_normals = use_normals
         self.train = train
         self.random_rotate = random_rotate
+        self.augment_strength = augment_strength
         self.items = self._discover_items()
         if not self.items:
             raise FileNotFoundError(f"No point cloud files found for split '{split}' under {self.data_root}")
@@ -186,7 +194,7 @@ class ModelNetLikeDataset(Dataset):
         points = normalize_xyz(points)
         points = sample_points(points, self.num_points, random_sample=self.train)
         if self.train:
-            points = augment(points, random_rotate=self.random_rotate)
+            points = augment(points, random_rotate=self.random_rotate, strength=self.augment_strength)
             np.random.shuffle(points)
         if not self.use_normals:
             points = points[:, :3]

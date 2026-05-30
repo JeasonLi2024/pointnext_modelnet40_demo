@@ -37,15 +37,15 @@ pointnext_modelnet40_demo/
 进入项目目录：
 
 ```powershell
-cd \pointnext_modelnet40_demo
+cd pointnext_modelnet40_demo
 ```
 
 建议创建虚拟环境：
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1 # Windows环境
-# source .venv/bin/activate # Linux/Mac环境
+.\.venv\Scripts\Activate.ps1 # Windows 环境
+# source .venv/bin/activate # Linux/Mac 环境
 python -m pip install --upgrade pip
 ```
 
@@ -139,14 +139,16 @@ configs/pointnext_s_c64.yaml
 - 输入与增强：`num_points`、`use_normals`、`random_rotate`
 - 训练设置：`epochs`、`batch_size`、`lr`、`weight_decay`、`label_smoothing`
 - 验证与运行：`val_ratio`、`num_workers`、`seed`、`use_gpu`
+- 重训增强：`use_class_weights`、`class_weight_power`、`augment_strength`、`warmup_epochs`、`early_stop_patience`、`early_stop_metric`、`resume_checkpoint`
+- 预测与提交：`test_data_root`、`checkpoint`、`out_csv`、`votes`、`predict_num_points`、`predict_batch_size`、`eval_on_test`
 
-当前配置已按 RTX 4070 Laptop 8GB 显存设置：
+当前配置已按 RTX 4090 24GB 显存设置：
 
 ```yaml
 variant: s
 width: 64
 num_points: 1024
-batch_size: 16
+batch_size: 128
 use_gpu: true
 ```
 
@@ -198,46 +200,115 @@ runs/pointnext_s_c64_normals/
 
 严格来说，最终 `Test Instance Accuracy` 和 `Class Accuracy` 应由独立测试集计算；当前项目只有训练集，因此训练中报告的是留出验证集指标。
 
-如果显存充足，可尝试更强的 PointNeXt-B/C64：
+### 5.1 推荐：PointNeXt-B 两阶段重训（当前默认方案）
 
-```powershell
-python -m src.pointnext_demo.train `
-  --config configs/pointnext_s_c64.yaml `
-  --variant b `
-  --batch-size 16 `
-  --out-dir runs/pointnext_b_c64_normals
+为提升**独立测试集**表现，项目提供两阶段训练配置与脚本：
+
+| 阶段 | 配置文件 | 说明 |
+|------|----------|------|
+| 阶段 1 | `configs/pointnext_b_c64_stage1.yaml` | `val_ratio: 0.15`，验证集早停，选超参与 checkpoint |
+| 阶段 2 | `configs/pointnext_b_c64_stage2.yaml` | `val_ratio: 0` 全量训练，从阶段 1 `best.pt` 微调 |
+
+**已启用的训练增强：**
+
+- **PointNeXt-B/C64**，`batch_size: 48`，`lr` 阶段 1 为 `0.001`、阶段 2 为 `0.0003`
+- **类别加权损失**（`use_class_weights: true`，缓解 `flower_pot` 等少样本类）
+- **随机 Y 轴旋转**（`random_rotate: true`）
+- **加强增强**（`augment_strength: strong`：更大缩放/平移/jitter/点丢弃）
+- **学习率 warmup** + **Cosine 衰减**
+- **早停**（阶段 1 监控 `val_class_acc`，阶段 2 全量训练监控 `train_class_acc`）
+
+**一键两阶段训练：**
+
+```bash
+source .venv/bin/activate
+cd ~/workspace/pointnext_modelnet40_demo
+python -m src.pointnext_demo.train_two_stage
 ```
+
+仅跑某一阶段：
+
+```bash
+python -m src.pointnext_demo.train_two_stage --stage 1
+python -m src.pointnext_demo.train_two_stage --stage 2
+```
+
+或分别指定配置：
+
+```bash
+python -m src.pointnext_demo.train --config configs/pointnext_b_c64_stage1.yaml
+python -m src.pointnext_demo.train --config configs/pointnext_b_c64_stage2.yaml
+```
+
+输出目录：
+
+```text
+runs/pointnext_b_c64_stage1/best.pt   # 阶段 1 最佳（验证 Class Acc）
+runs/pointnext_b_c64_stage2/best.pt   # 阶段 2 最佳（全量训练，用于提交）
+```
+
+阶段 2 结束后预测（配置已指向 stage2 权重与提交 CSV）：
+
+```bash
+python -m src.pointnext_demo.predict --config configs/pointnext_b_c64_stage2.yaml
+```
+
+### 5.2 单阶段 / 旧版 S 模型
+
+仍可使用 `configs/pointnext_s_c64.yaml` 单阶段训练。显存不足时将 `batch_size` 调小即可。
 
 ## 6. 使用训练好的模型预测
 
-如果测试集在默认 `data_root/test` 下：
+预测参数与训练一样，优先写在 `configs/pointnext_s_c64.yaml` 末尾的「Prediction」小节，包括：
+
+- `test_data_root`：测试集根目录（其下应有 `test/<class>/*.txt`）
+- `checkpoint`：权重路径，默认 `runs/pointnext_s_c64_normals/best.pt`
+- `out_csv`：提交文件名与路径
+- `votes`：测试时投票次数（Y 轴旋转平均概率）
+- `predict_num_points`：推理采样点数（可与训练 `num_points` 不同，无需重训即可试 2048）
+- `predict_batch_size`：推理 batch，点数增多时适当减小
+- `eval_on_test: true`：若测试目录带类别标签，预测结束后打印 Test Instance / Class Accuracy
+
+推荐命令（仅需指定配置文件）：
 
 ```powershell
-python -m src.pointnext_demo.predict `
-  --config configs/pointnext_s_c64.yaml `
-  --checkpoint runs/pointnext_s_c64_normals/best.pt `
-  --out-csv submit.csv
+python -m src.pointnext_demo.predict --config configs/pointnext_s_c64.yaml
 ```
 
-如果测试集在其他目录：
+Linux / AutoDL：
+
+```bash
+source .venv/bin/activate
+cd ~/workspace/pointnext_modelnet40_demo
+python -m src.pointnext_demo.predict --config configs/pointnext_s_c64.yaml
+```
+
+当前配置示例（TTA：2048 点 + 20 票投票）：
+
+```yaml
+test_data_root: modelnet40_test_data/modelnet40_normal_resampled
+checkpoint: runs/pointnext_s_c64_normals/best.pt
+out_csv: runs/pointnext_s_c64_normals/赛道1-李文睿2023210965-王俊涛2023210952-孙奥翔2023210958.csv
+votes: 20
+predict_num_points: 2048
+predict_batch_size: 64
+eval_on_test: true
+```
+
+需要临时覆盖时仍可用命令行，例如只改投票次数：
 
 ```powershell
-python -m src.pointnext_demo.predict `
-  --config configs/pointnext_s_c64.yaml `
-  --data-root your_test_data_root `
-  --split test `
-  --checkpoint runs/pointnext_s_c64_normals/best.pt `
-  --out-csv submit.csv
+python -m src.pointnext_demo.predict --config configs/pointnext_s_c64.yaml --votes 30
 ```
 
-输出格式：
+输出格式（无表头，英文逗号分隔）：
 
 ```text
-sample_0001,chair
-sample_0002,airplane
+airplane_0627,airplane
+airplane_0628,chair
 ```
 
-`--votes 10` 表示测试时对同一个样本做 10 次预测并平均类别概率，通常比单次预测更稳定，但预测耗时约为 `--votes 1` 的 10 倍。
+`votes` 越大通常越稳，但耗时近似线性增加（`votes=20` 约为 `votes=1` 的 20 倍）。
 
 ## 7. Jupyter Notebook 训练
 

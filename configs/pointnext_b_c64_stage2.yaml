@@ -1,0 +1,45 @@
+# PointNeXt-B/C64 — Stage 2: full training set, fine-tune from stage1 best.pt
+
+data_root: modelnet40_train_data/modelnet40_normal_resampled
+labels: labels/modelnet40.txt
+out_dir: runs/pointnext_b_c64_stage2
+
+variant: b
+width: 64
+nsample: 32
+num_points: 1024
+use_normals: true
+
+random_rotate: true
+augment_strength: strong
+
+epochs: 400
+batch_size: 48
+lr: 0.0003
+weight_decay: 0.05
+label_smoothing: 0.1
+
+# Full training set (no hold-out validation)
+val_ratio: 0
+num_workers: 8
+seed: 42
+use_gpu: true
+
+use_class_weights: true
+class_weight_power: 0.5
+
+warmup_epochs: 10
+early_stop_patience: 40
+early_stop_min_delta: 0.0005
+early_stop_metric: train_class_acc
+
+resume_checkpoint: runs/pointnext_b_c64_stage1/best.pt
+
+test_data_root: modelnet40_test_data/modelnet40_normal_resampled
+test_split: test
+checkpoint: runs/pointnext_b_c64_stage2/best.pt
+out_csv: runs/pointnext_b_c64_stage2/赛道1-李文睿2023210965-王俊涛2023210952-孙奥翔2023210958.csv
+votes: 10
+predict_num_points: 1024
+predict_batch_size: 48
+eval_on_test: true
