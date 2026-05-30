@@ -11,18 +11,18 @@ labels: labels/modelnet40.txt
 # Output directory for checkpoints and training history.
 out_dir: runs/pointnext_s_c64_normals
 
-# Model variant. Use "s" first; try "b" only if GPU memory is enough.
+# Model variant. Use "s" first; RTX 4090 24GB can also try "b" for higher capacity.
 variant: s
 
-# Channel width. 64 means PointNeXt-S/C64. For 8GB GPU memory, 64 is the
-# recommended accuracy/memory balance. Use 32 or 48 if out of memory.
+# Channel width. 64 means PointNeXt-S/C64. RTX 4090 24GB keeps 64 as the
+# accuracy/speed balance; try 96 only with variant "b" or smaller batch_size.
 width: 64
 
 # kNN neighborhood size for local grouping. 32 is the standard safe default.
 nsample: 32
 
-# Number of sampled points per object. 1024 is the recommended default for
-# ModelNet40; 2048 may improve accuracy but uses more memory.
+# Number of sampled points per object. 1024 is the ModelNet40 benchmark default.
+# RTX 4090 24GB can try 2048 with batch_size 32-64 if chasing extra accuracy.
 num_points: 1024
 
 # Use normals nx,ny,nz in addition to xyz. Keep true for this dataset.
@@ -35,11 +35,12 @@ random_rotate: false
 # Training epochs. Increase if validation metrics are still improving.
 epochs: 600
 
-# Batch size. RTX 4070 Laptop 8GB should start from 16; try 24 if memory allows.
-batch_size: 16
+# Batch size. Tuned for RTX 4090 24GB @ 1024 points (~9GB peak at batch 128).
+# Reduce to 64 if unstable; OOM only likely above 224.
+batch_size: 128
 
-# AdamW learning rate. Typical range: 0.0005-0.002.
-lr: 0.001
+# AdamW learning rate. Scaled with sqrt(batch/16) from base 0.001; cap 0.002.
+lr: 0.002
 
 # AdamW weight decay. 0.05 follows PointNeXt/OpenPoints-style settings.
 weight_decay: 0.05
@@ -51,8 +52,8 @@ label_smoothing: 0.2
 # test split is currently available.
 val_ratio: 0.15
 
-# Windows users should keep 0 unless DataLoader multiprocessing is verified.
-num_workers: 0
+# DataLoader workers. Linux + CUDA: 8 is a good default on AutoDL; use 0 on Windows.
+num_workers: 8
 
 # Random seed for reproducible train/validation split and initialization.
 seed: 42

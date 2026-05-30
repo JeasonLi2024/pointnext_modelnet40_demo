@@ -37,14 +37,15 @@ pointnext_modelnet40_demo/
 进入项目目录：
 
 ```powershell
-cd D:\pointnext_modelnet40_demo
+cd \pointnext_modelnet40_demo
 ```
 
 建议创建虚拟环境：
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1 # Windows环境
+# source .venv/bin/activate # Linux/Mac环境
 python -m pip install --upgrade pip
 ```
 
