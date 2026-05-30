@@ -33,6 +33,12 @@ def load_config(config_path: str | Path | None) -> dict:
     return data
 
 
+def select_device(use_gpu: bool) -> torch.device:
+    if use_gpu and torch.cuda.is_available():
+        return torch.device("cuda")
+    return torch.device("cpu")
+
+
 def save_checkpoint(path: str | Path, payload: dict) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

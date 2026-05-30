@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from .data import ModelNetLikeDataset, collate_batch
 from .model import build_model
-from .utils import load_config, load_labels, set_seed
+from .utils import load_config, load_labels, select_device, set_seed
 
 
 def parse_args() -> argparse.Namespace:
@@ -32,6 +32,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=None)
     parser.add_argument("--num-workers", type=int, default=None)
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--use-gpu", dest="use_gpu", action="store_true", default=None)
+    parser.add_argument("--cpu", dest="use_gpu", action="store_false")
     args = parser.parse_args()
     config = {
         "data_root": "modelnet40_train_data/modelnet40_normal_resampled",
@@ -42,8 +44,13 @@ def parse_args() -> argparse.Namespace:
         "batch_size": 16,
         "num_workers": 0,
         "seed": 42,
+        "use_gpu": True,
     }
     train_config = load_config(args.config)
+    if "require_cuda" in train_config and "use_gpu" not in train_config:
+        train_config["use_gpu"] = bool(train_config.pop("require_cuda"))
+    else:
+        train_config.pop("require_cuda", None)
     config.update({key: value for key, value in train_config.items() if key in config})
     for key, value in vars(args).items():
         if key != "config" and value is not None:
@@ -74,7 +81,7 @@ def main() -> None:
     )
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, collate_fn=collate_batch)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = select_device(args.use_gpu)
     model = build_model(
         variant,
         num_classes=len(labels),

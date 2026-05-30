@@ -57,5 +57,6 @@ num_workers: 0
 # Random seed for reproducible train/validation split and initialization.
 seed: 42
 
-# Fail fast if CUDA is unavailable. Keep true for formal training.
-require_cuda: true
+# Enable GPU acceleration when CUDA is available. If CUDA is unavailable, the
+# code falls back to CPU automatically.
+use_gpu: true

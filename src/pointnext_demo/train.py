@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from .data import ModelNetLikeDataset, collate_batch
 from .model import build_model
-from .utils import AverageMeter, load_config, load_labels, save_checkpoint, save_json, set_seed
+from .utils import AverageMeter, load_config, load_labels, save_checkpoint, save_json, select_device, set_seed
 
 
 def parse_args() -> argparse.Namespace:
@@ -36,8 +36,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--val-ratio", type=float, default=None)
     parser.add_argument("--num-workers", type=int, default=None)
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--require-cuda", dest="require_cuda", action="store_true", default=None)
-    parser.add_argument("--allow-cpu", dest="require_cuda", action="store_false")
+    parser.add_argument("--use-gpu", dest="use_gpu", action="store_true", default=None)
+    parser.add_argument("--cpu", dest="use_gpu", action="store_false")
     args = parser.parse_args()
     config = {
         "data_root": "modelnet40_train_data/modelnet40_normal_resampled",
@@ -57,9 +57,14 @@ def parse_args() -> argparse.Namespace:
         "val_ratio": 0.15,
         "num_workers": 0,
         "seed": 42,
-        "require_cuda": True,
+        "use_gpu": True,
     }
-    config.update(load_config(args.config))
+    file_config = load_config(args.config)
+    if "require_cuda" in file_config and "use_gpu" not in file_config:
+        file_config["use_gpu"] = bool(file_config.pop("require_cuda"))
+    else:
+        file_config.pop("require_cuda", None)
+    config.update(file_config)
     for key, value in vars(args).items():
         if key != "config" and value is not None:
             config[key] = value
@@ -171,12 +176,7 @@ def main() -> None:
     )
     val_loader = DataLoader(val_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, collate_fn=collate_batch)
 
-    if args.require_cuda and not torch.cuda.is_available():
-        raise RuntimeError(
-            "CUDA is not available. Install a CUDA-enabled PyTorch build and check `nvidia-smi`, "
-            "or remove --require-cuda to train on CPU."
-        )
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = select_device(args.use_gpu)
     model = build_model(
         args.variant,
         num_classes=len(labels),
