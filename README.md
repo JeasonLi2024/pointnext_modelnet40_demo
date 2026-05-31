@@ -3,7 +3,7 @@
 这是一个 ModelNet40 点云分类项目。当前主方案是：
 
 ```text
-PointNeXt-S/C64 + x,y,z,nx,ny,nz + 1024 points + AdamW + cosine scheduler + test-time voting
+PointNeXt-S/B + x,y,z,nx,ny,nz + 1024-point training + 2048-point inference + AdamW + cosine scheduler
 ```
 
 代码采用“可复用 Python 模块 + 命令行脚本 + Jupyter Notebook”的结构。训练和预测入口通过配置项 `use_gpu` 控制是否启用 GPU 加速：设置为 `true` 时会检测 CUDA，机器有可用 GPU 就使用 GPU，否则自动回落到 CPU；设置为 `false` 时始终使用 CPU。
@@ -17,6 +17,17 @@ pointnext_modelnet40_demo/
   requirements.txt
   configs/
     pointnext_s_c64.yaml          # 训练/预测默认配置，可手动调整超参数
+    pointnext_b_c64_no_rotate/    # B/C64 无旋转两阶段配置
+      stage1.yaml
+      stage2.yaml
+    pointnext_b_c64_rotate/       # B/C64 随机 Y 轴旋转两阶段配置
+      stage1.yaml
+      stage2.yaml
+    pointnext_b_c96_no_rotate/    # B/C96 高容量无旋转两阶段配置
+      stage1.yaml
+      stage2.yaml
+    predict_selected_model/
+      predict.yaml                # 统一预测入口，通过改配置切换 checkpoint
   labels/
     modelnet40.txt                # ModelNet40 类别名称
   notebooks/
@@ -126,13 +137,13 @@ python -m compileall src
 
 ## 4. 配置文件
 
-主要训练参数已集中到：
+基础模型训练参数集中到：
 
 ```text
 configs/pointnext_s_c64.yaml
 ```
 
-建议优先修改这个配置文件，而不是在命令行里写一长串参数。配置文件中每个参数都有注释说明，包括：
+多模型实验配置放在 `configs/<model_name>/` 子目录中，避免不同实验互相覆盖。配置文件中每个参数都有注释说明，包括：
 
 - 数据路径：`data_root`、`labels`、`out_dir`
 - 模型结构：`variant`、`width`、`nsample`
@@ -158,9 +169,19 @@ use_gpu: true
 python -m src.pointnext_demo.train --config configs/pointnext_s_c64.yaml --batch-size 8
 ```
 
+当前保留的训练配置：
+
+| 模型名 | 配置 | 说明 |
+| --- | --- | --- |
+| `pointnext_s_c64_base_v2` | `configs/pointnext_s_c64.yaml` | 优化后的 S/C64 基础模型，无旋转、法向量、轻增强、类别权重、2048 点推理 |
+| `pointnext_b_c64_no_rotate_stage1/2` | `configs/pointnext_b_c64_no_rotate/stage1.yaml`、`stage2.yaml` | 主力 B/C64 两阶段方案，无随机旋转，默认 `votes: 1` |
+| `pointnext_b_c64_rotate_stage1/2` | `configs/pointnext_b_c64_rotate/stage1.yaml`、`stage2.yaml` | 旋转增强对照实验，默认 `votes: 3` |
+| `pointnext_b_c96_no_rotate_stage1/2` | `configs/pointnext_b_c96_no_rotate/stage1.yaml`、`stage2.yaml` | 更大容量备选方案，显存充足时再训练 |
+| `predict_selected_model` | `configs/predict_selected_model/predict.yaml` | 统一预测配置，修改 YAML 即可切换模型 |
+
 ## 5. 正式训练
 
-推荐先训练 PointNeXt-S/C64：
+推荐先训练优化后的 PointNeXt-S/C64 基础模型：
 
 ```powershell
 python -m src.pointnext_demo.train --config configs/pointnext_s_c64.yaml
@@ -182,7 +203,7 @@ device=cpu
 训练结束后输出：
 
 ```text
-runs/pointnext_s_c64_normals/
+runs/pointnext_s_c64_base_v2/
   best.pt
   history.json
 ```
@@ -200,105 +221,111 @@ runs/pointnext_s_c64_normals/
 
 严格来说，最终 `Test Instance Accuracy` 和 `Class Accuracy` 应由独立测试集计算；当前项目只有训练集，因此训练中报告的是留出验证集指标。
 
-### 5.1 推荐：PointNeXt-B 两阶段重训（当前默认方案）
+### 5.1 多模型训练顺序
 
-为提升**独立测试集**表现，项目提供两阶段训练配置与脚本：
+第一轮实验表明：未经过旋转增强训练的模型，使用随机旋转投票会明显降低测试精度；但 2048 点推理有提升。因此当前主线优先训练无旋转模型，旋转增强作为对照实验保留。
 
-| 阶段 | 配置文件 | 说明 |
-|------|----------|------|
-| 阶段 1 | `configs/pointnext_b_c64_stage1.yaml` | `val_ratio: 0.15`，验证集早停，选超参与 checkpoint |
-| 阶段 2 | `configs/pointnext_b_c64_stage2.yaml` | `val_ratio: 0` 全量训练，从阶段 1 `best.pt` 微调 |
+建议训练顺序：
 
-**已启用的训练增强：**
+1. `pointnext_s_c64_base_v2`：确认优化后的基础模型是否超过第一轮。
+2. `pointnext_b_c64_no_rotate_stage1/2`：主力提分模型，重点冲 `Class Accuracy >= 90%`。
+3. `pointnext_b_c64_rotate_stage1/2`：旋转增强对照，只有实测超过无旋转模型才作为最终模型。
+4. `pointnext_b_c96_no_rotate_stage1/2`：更大容量备选，B/C64 仍不足时再训练。
 
-- **PointNeXt-B/C64**，`batch_size: 48`，`lr` 阶段 1 为 `0.001`、阶段 2 为 `0.0003`
-- **类别加权损失**（`use_class_weights: true`，缓解 `flower_pot` 等少样本类）
-- **随机 Y 轴旋转**（`random_rotate: true`）
-- **加强增强**（`augment_strength: strong`：更大缩放/平移/jitter/点丢弃）
-- **学习率 warmup** + **Cosine 衰减**
-- **早停**（阶段 1 监控 `val_class_acc`，阶段 2 全量训练监控 `train_class_acc`）
+训练基础 S/C64：
 
-**一键两阶段训练：**
+```powershell
+python -m src.pointnext_demo.train --config configs/pointnext_s_c64.yaml
+```
+
+训练 B/C64 无旋转两阶段：
 
 ```bash
 source .venv/bin/activate
 cd ~/workspace/pointnext_modelnet40_demo
-python -m src.pointnext_demo.train_two_stage
+python -m src.pointnext_demo.train_two_stage --stage1-config configs/pointnext_b_c64_no_rotate/stage1.yaml --stage2-config configs/pointnext_b_c64_no_rotate/stage2.yaml
 ```
 
-仅跑某一阶段：
+训练 B/C64 旋转增强两阶段：
 
 ```bash
-python -m src.pointnext_demo.train_two_stage --stage 1
-python -m src.pointnext_demo.train_two_stage --stage 2
+python -m src.pointnext_demo.train_two_stage --stage1-config configs/pointnext_b_c64_rotate/stage1.yaml --stage2-config configs/pointnext_b_c64_rotate/stage2.yaml
 ```
 
-或分别指定配置：
+训练 B/C96 无旋转两阶段：
 
 ```bash
-python -m src.pointnext_demo.train --config configs/pointnext_b_c64_stage1.yaml
-python -m src.pointnext_demo.train --config configs/pointnext_b_c64_stage2.yaml
+python -m src.pointnext_demo.train_two_stage --stage1-config configs/pointnext_b_c96_no_rotate/stage1.yaml --stage2-config configs/pointnext_b_c96_no_rotate/stage2.yaml
 ```
 
-输出目录：
+也可以分别训练某一阶段，例如：
+
+```powershell
+python -m src.pointnext_demo.train --config configs/pointnext_b_c64_no_rotate/stage1.yaml
+python -m src.pointnext_demo.train --config configs/pointnext_b_c64_no_rotate/stage2.yaml
+```
+
+每个模型会写入独立输出目录，例如：
 
 ```text
-runs/pointnext_b_c64_stage1/best.pt   # 阶段 1 最佳（验证 Class Acc）
-runs/pointnext_b_c64_stage2/best.pt   # 阶段 2 最佳（全量训练，用于提交）
-```
-
-阶段 2 结束后预测（配置已指向 stage2 权重与提交 CSV）：
-
-```bash
-python -m src.pointnext_demo.predict --config configs/pointnext_b_c64_stage2.yaml
+runs/pointnext_s_c64_base_v2/
+runs/pointnext_b_c64_no_rotate_stage1/
+runs/pointnext_b_c64_no_rotate_stage2/
+runs/pointnext_b_c64_rotate_stage1/
+runs/pointnext_b_c64_rotate_stage2/
+runs/pointnext_b_c96_no_rotate_stage1/
+runs/pointnext_b_c96_no_rotate_stage2/
 ```
 
 ### 5.2 单阶段 / 旧版 S 模型
 
-仍可使用 `configs/pointnext_s_c64.yaml` 单阶段训练。显存不足时将 `batch_size` 调小即可。
+旧的第一轮输出保留在 `runs/pointnext_s_c64_normals/`。当前 `configs/pointnext_s_c64.yaml` 已改为新的 `pointnext_s_c64_base_v2` 输出目录，不会覆盖第一轮结果。显存不足时将 `batch_size` 调小即可。
 
 ## 6. 使用训练好的模型预测
 
-预测参数与训练一样，优先写在 `configs/pointnext_s_c64.yaml` 末尾的「Prediction」小节，包括：
+预测参数与训练一样写在 YAML 中。推荐固定使用统一预测配置：
+
+```powershell
+python -m src.pointnext_demo.predict --config configs/predict_selected_model/predict.yaml
+```
+
+需要切换模型时，只修改 `configs/predict_selected_model/predict.yaml` 的「Selected model parameters」字段，不需要改执行命令：
+
+```yaml
+selected_model: pointnext_b_c64_no_rotate_stage2
+checkpoint: runs/pointnext_b_c64_no_rotate_stage2/best.pt
+out_csv: runs/pointnext_b_c64_no_rotate_stage2/赛道1-李文睿2023210965-王俊涛2023210952-孙奥翔2023210958.csv
+variant: b
+width: 64
+nsample: 32
+use_normals: true
+predict_num_points: 2048
+votes: 1
+predict_batch_size: 32
+```
+
+无旋转模型建议 `votes: 1`；旋转增强模型可以比较 `votes: 1` 和 `votes: 3`，只有实测提升时再保留更高投票数。
+
+各模型训练配置末尾也包含预测字段，可以直接用对应配置预测。例如：
+
+```powershell
+python -m src.pointnext_demo.predict --config configs/pointnext_b_c64_no_rotate/stage2.yaml
+```
+
+常用预测字段包括：
 
 - `test_data_root`：测试集根目录（其下应有 `test/<class>/*.txt`）
-- `checkpoint`：权重路径，默认 `runs/pointnext_s_c64_normals/best.pt`
+- `checkpoint`：权重路径，例如 `runs/pointnext_b_c64_no_rotate_stage2/best.pt`
 - `out_csv`：提交文件名与路径
 - `votes`：测试时投票次数（Y 轴旋转平均概率）
 - `predict_num_points`：推理采样点数（可与训练 `num_points` 不同，无需重训即可试 2048）
 - `predict_batch_size`：推理 batch，点数增多时适当减小
 - `eval_on_test: true`：若测试目录带类别标签，预测结束后打印 Test Instance / Class Accuracy
 
-推荐命令（仅需指定配置文件）：
-
-```powershell
-python -m src.pointnext_demo.predict --config configs/pointnext_s_c64.yaml
-```
-
-Linux / AutoDL：
-
-```bash
-source .venv/bin/activate
-cd ~/workspace/pointnext_modelnet40_demo
-python -m src.pointnext_demo.predict --config configs/pointnext_s_c64.yaml
-```
-
-当前配置示例（TTA：2048 点 + 20 票投票）：
-
-```yaml
-test_data_root: modelnet40_test_data/modelnet40_normal_resampled
-checkpoint: runs/pointnext_s_c64_normals/best.pt
-out_csv: runs/pointnext_s_c64_normals/赛道1-李文睿2023210965-王俊涛2023210952-孙奥翔2023210958.csv
-votes: 20
-predict_num_points: 2048
-predict_batch_size: 64
-eval_on_test: true
-```
-
 需要临时覆盖时仍可用命令行，例如只改投票次数：
 
 ```powershell
-python -m src.pointnext_demo.predict --config configs/pointnext_s_c64.yaml --votes 30
+python -m src.pointnext_demo.predict --config configs/predict_selected_model/predict.yaml --votes 3
 ```
 
 输出格式（无表头，英文逗号分隔）：
@@ -308,7 +335,7 @@ airplane_0627,airplane
 airplane_0628,chair
 ```
 
-`votes` 越大通常越稳，但耗时近似线性增加（`votes=20` 约为 `votes=1` 的 20 倍）。
+`votes` 越大耗时近似线性增加。对当前无旋转训练模型，第一轮实测 `votes=10` 明显低于 `votes=1`，因此不要盲目增加投票次数。
 
 ## 7. Jupyter Notebook 训练
 
@@ -379,9 +406,10 @@ Class Accuracy >= 90%
 
 但需要注意：本项目是轻量自包含实现，不是完整复刻官方 OpenPoints。它更适合课程项目、可读性和本地直接运行；如果你必须最大化最终测试成绩，优先级建议如下：
 
-1. 首选：当前 `PointNeXt-S/C64 + normals + votes=10`，先完整训练 600 epoch。
-2. 如果验证集 `val_acc` 长期低于 92%，尝试 `PointNeXt-B/C64`、更长训练、调整 batch size。
-3. 如果最终成绩必须尽可能接近官方最佳结果，使用官方 OpenPoints/PointNeXt 代码和官方配置训练或加载官方预训练模型会更稳。
+1. 首选：`pointnext_b_c64_no_rotate_stage1/2 + normals + predict_num_points=2048 + votes=1`。
+2. 对照：`pointnext_b_c64_rotate_stage1/2`，只在实测优于无旋转模型时使用。
+3. 如果 Class Accuracy 仍低于 90%，尝试 `pointnext_b_c96_no_rotate_stage1/2` 或微调类别权重。
+4. 如果最终成绩必须尽可能接近官方最佳结果，使用官方 OpenPoints/PointNeXt 代码和官方配置训练或加载官方预训练模型会更稳。
 
 参考资料：
 

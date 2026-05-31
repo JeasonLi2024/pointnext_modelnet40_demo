@@ -9,7 +9,10 @@ data_root: modelnet40_train_data/modelnet40_normal_resampled
 labels: labels/modelnet40.txt
 
 # Output directory for checkpoints and training history.
-out_dir: runs/pointnext_s_c64_normals
+# Keep the first-round run in runs/pointnext_s_c64_normals; retrain this
+# optimized baseline into a new directory.
+model_name: pointnext_s_c64_base_v2
+out_dir: runs/pointnext_s_c64_base_v2
 
 # Model variant. Use "s" first; RTX 4090 24GB can also try "b" for higher capacity.
 variant: s
@@ -32,21 +35,24 @@ use_normals: true
 # ModelNet40 configs often avoid rotation for aligned objects.
 random_rotate: false
 
-# Training epochs. Increase if validation metrics are still improving.
-epochs: 600
+# Training epochs. Early stopping below selects the best validation-class
+# checkpoint, so this can stay long enough for late improvements.
+epochs: 700
 
 # Batch size. Tuned for RTX 4090 24GB @ 1024 points (~9GB peak at batch 128).
 # Reduce to 64 if unstable; OOM only likely above 224.
 batch_size: 128
 
-# AdamW learning rate. Scaled with sqrt(batch/16) from base 0.001; cap 0.002.
-lr: 0.002
+# AdamW learning rate. Slightly lower than the first round to reduce validation
+# oscillation while keeping the large RTX 4090 batch.
+lr: 0.0015
 
 # AdamW weight decay. 0.05 follows PointNeXt/OpenPoints-style settings.
 weight_decay: 0.05
 
-# Label smoothing for better generalization. Typical range: 0.1-0.2.
-label_smoothing: 0.2
+# Label smoothing for better generalization. Reduced from 0.2 to leave more
+# class-discriminative signal for the minority classes.
+label_smoothing: 0.1
 
 # Validation split ratio from the training set. Used because no independent
 # test split is currently available.
@@ -61,22 +67,38 @@ seed: 42
 # Enable GPU acceleration when CUDA is unavailable, the code falls back to CPU.
 use_gpu: true
 
+# Class-balanced loss. The training set is highly imbalanced; a mild exponent
+# helps Class Accuracy without over-penalizing frequent classes.
+use_class_weights: true
+class_weight_power: 0.25
+
+# Warmup + early stopping. Monitor mean class accuracy because the target
+# includes Class Accuracy >= 90%.
+augment_strength: normal
+warmup_epochs: 10
+early_stop_patience: 150
+early_stop_min_delta: 0.0005
+early_stop_metric: val_class_acc
+
+resume_checkpoint: null
+
 # --- Prediction (python -m src.pointnext_demo.predict --config ...) ---
 # Test set root; structure: <test_data_root>/test/<class>/*.txt
 test_data_root: modelnet40_test_data/modelnet40_normal_resampled
 test_split: test
 
 # Checkpoint for inference. If omitted, defaults to <out_dir>/best.pt
-checkpoint: runs/pointnext_s_c64_normals/best.pt
+checkpoint: runs/pointnext_s_c64_base_v2/best.pt
 
 # Submission CSV: column1=id, column2=class name, comma-separated, no header
-out_csv: runs/pointnext_s_c64_normals/赛道1-李文睿2023210965-王俊涛2023210952-孙奥翔2023210958.csv
+out_csv: runs/pointnext_s_c64_base_v2/赛道1-李文睿2023210965-王俊涛2023210952-孙奥翔2023210958.csv
 
-# Test-time voting (Y-axis rotation average). More votes = slower but often more stable.
-votes: 10
+# No-rotation baseline: keep voting at 1. The first-round experiments showed
+# random rotation voting hurts aligned ModelNet40-style objects.
+votes: 1
 
 # Inference-only point count (can differ from training num_points without retraining).
-predict_num_points: 1024
+predict_num_points: 2048
 
 # Inference batch size (2048 points needs less than training batch_size on GPU).
 predict_batch_size: 64

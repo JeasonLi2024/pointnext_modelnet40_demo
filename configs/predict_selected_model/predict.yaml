@@ -1,0 +1,34 @@
+# Edit this file to choose which trained model to use for prediction.
+# Then keep the command unchanged:
+# python -m src.pointnext_demo.predict --config configs/predict_selected_model/predict.yaml
+
+# Available trained-model targets after the planned experiments:
+# - pointnext_s_c64_base_v2
+# - pointnext_b_c64_no_rotate_stage2
+# - pointnext_b_c64_rotate_stage2
+# - pointnext_b_c96_no_rotate_stage2
+
+selected_model: pointnext_s_c64_base_v2
+
+labels: labels/modelnet40.txt
+test_data_root: modelnet40_test_data/modelnet40_normal_resampled
+test_split: test
+
+# ---- Selected model parameters ----
+# Change this block when switching models.
+checkpoint: runs/pointnext_s_c64_base_v2/best.pt
+out_csv: runs/pointnext_s_c64_base_v2/赛道1-李文睿2023210965-王俊涛2023210952-孙奥翔2023210958.csv
+variant: s
+width: 64
+nsample: 32
+use_normals: true
+
+# Prediction settings. For no-rotation models, keep votes=1. For rotation
+# models, compare votes=1 and votes=3 first; avoid votes=10 unless it improves.
+predict_num_points: 2048
+votes: 1
+predict_batch_size: 64
+num_workers: 8
+seed: 42
+use_gpu: true
+eval_on_test: true
