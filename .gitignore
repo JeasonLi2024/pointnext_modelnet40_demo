@@ -19,7 +19,7 @@ modelnet40_train_data/
 modelnet40_test_data/
 
 data_toy/
-*.pt
+
 *.pth
 *.ckpt
 submit.csv
