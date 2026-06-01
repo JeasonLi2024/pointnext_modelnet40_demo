@@ -289,12 +289,27 @@ runs/pointnext_b_c96_no_rotate_stage2/
 python -m src.pointnext_demo.predict --config configs/predict_selected_model/predict.yaml
 ```
 
-需要切换模型时，只修改 `configs/predict_selected_model/predict.yaml` 的「Selected model parameters」字段，不需要改执行命令：
+如果在 Windows 里使用本项目虚拟环境，先进入虚拟环境，再运行同一条预测命令：
+
+```bat
+venv\Scripts\activate.bat
+python -m src.pointnext_demo.predict --config configs/predict_selected_model/predict.yaml
+```
+
+需要切换模型时，只修改 `configs/predict_selected_model/predict.yaml`，不需要改执行命令。必须同步检查并修改这些字段：
+
+- `selected_model`：当前选择的模型名称，用于人工记录和结果追踪；脚本不会根据它自动填充其他字段。
+- `checkpoint`：要加载的权重文件，通常是对应目录下的 `best.pt`。
+- `out_csv`：预测结果输出路径。建议每个模型使用独立文件名，避免覆盖之前的结果。
+- `variant`、`width`、`nsample`、`use_normals`：模型结构参数，必须和训练该 `best.pt` 时一致，否则可能无法加载权重或得到错误结果。
+- `predict_num_points`、`votes`、`predict_batch_size`：推理参数。切换到更大的模型或更多点数时，要同步调小 batch；无旋转模型通常保持 `votes: 1`。
+
+例如切换到 `pointnext_b_c64_no_rotate_stage2` 时，`predict.yaml` 中至少应同步改成：
 
 ```yaml
 selected_model: pointnext_b_c64_no_rotate_stage2
 checkpoint: runs/pointnext_b_c64_no_rotate_stage2/best.pt
-out_csv: runs/pointnext_b_c64_no_rotate_stage2/赛道1-李文睿2023210965-王俊涛2023210952-孙奥翔2023210958.csv
+out_csv: runs/pointnext_b_c64_no_rotate_stage2/test_predictions_stage2.csv
 variant: b
 width: 64
 nsample: 32
@@ -304,7 +319,16 @@ votes: 1
 predict_batch_size: 32
 ```
 
-无旋转模型建议 `votes: 1`；旋转增强模型可以比较 `votes: 1` 和 `votes: 3`，只有实测提升时再保留更高投票数。
+常用模型的推理参数可参考：
+
+| 模型 | `variant` | `width` | `nsample` | `predict_num_points` | `votes` | `predict_batch_size` |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| `pointnext_s_c64_base_v2` | `s` | 64 | 32 | 2048 | 1 | 64 |
+| `pointnext_b_c64_no_rotate_stage2` | `b` | 64 | 32 | 2048 | 1 | 32 |
+| `pointnext_b_c64_rotate_stage2` | `b` | 64 | 32 | 2048 | 1 或 3 | 32 |
+| `pointnext_b_c96_no_rotate_stage2` | `b` | 96 | 32 | 2048 | 1 | 24 |
+
+无旋转模型建议 `votes: 1`；旋转增强模型可以比较 `votes: 1` 和 `votes: 3`，只有实测提升时再保留更高投票数。`out_csv` 建议写成模型专属文件名，例如 `test_predictions_base_v2.csv`、`test_predictions_stage2.csv`，便于后续对比分析。
 
 各模型训练配置末尾也包含预测字段，可以直接用对应配置预测。例如：
 
@@ -322,11 +346,13 @@ python -m src.pointnext_demo.predict --config configs/pointnext_b_c64_no_rotate/
 - `predict_batch_size`：推理 batch，点数增多时适当减小
 - `eval_on_test: true`：若测试目录带类别标签，预测结束后打印 Test Instance / Class Accuracy
 
-需要临时覆盖时仍可用命令行，例如只改投票次数：
+需要临时实验时仍可用命令行覆盖 YAML，例如只改投票次数：
 
 ```powershell
 python -m src.pointnext_demo.predict --config configs/predict_selected_model/predict.yaml --votes 3
 ```
+
+正式保留结果时，优先把参数写回 `configs/predict_selected_model/predict.yaml`，再使用固定命令运行，避免忘记当时命令行覆盖了哪些字段。
 
 输出格式（无表头，英文逗号分隔）：
 

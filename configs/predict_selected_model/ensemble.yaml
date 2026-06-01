@@ -1,0 +1,56 @@
+# Probability ensemble: average softmax outputs from multiple checkpoints.
+# Run:
+#   venv\Scripts\activate.bat
+#   python -m src.pointnext_demo.predict_ensemble --config configs/predict_selected_model/ensemble.yaml
+
+labels: labels/modelnet40.txt
+test_data_root: modelnet40_test_data/modelnet40_normal_resampled
+test_split: test
+out_csv: runs/predict_compare/ensemble_prob_avg_4models.csv
+predict_num_points: 2048
+num_workers: 8
+seed: 42
+use_gpu: true
+eval_on_test: true
+
+# Each member: checkpoint + architecture + votes + optional weight.
+members:
+  - name: pointnext_b_c64_no_rotate_stage2
+    checkpoint: runs/pointnext_b_c64_no_rotate_stage2/best.pt
+    variant: b
+    width: 64
+    nsample: 32
+    use_normals: true
+    votes: 1
+    weight: 1.0
+    predict_batch_size: 32
+
+  - name: pointnext_b_c64_rotate_stage2
+    checkpoint: runs/pointnext_b_c64_rotate_stage2/best.pt
+    variant: b
+    width: 64
+    nsample: 32
+    use_normals: true
+    votes: 3
+    weight: 1.0
+    predict_batch_size: 32
+
+  - name: pointnext_b_c96_no_rotate_stage2
+    checkpoint: runs/pointnext_b_c96_no_rotate_stage2/best.pt
+    variant: b
+    width: 96
+    nsample: 32
+    use_normals: true
+    votes: 1
+    weight: 1.0
+    predict_batch_size: 24
+
+  - name: pointnext_s_c64_base_v2
+    checkpoint: runs/pointnext_s_c64_base_v2/best.pt
+    variant: s
+    width: 64
+    nsample: 32
+    use_normals: true
+    votes: 1
+    weight: 1.0
+    predict_batch_size: 64

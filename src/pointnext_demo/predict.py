@@ -4,14 +4,12 @@ import argparse
 from collections import defaultdict
 from pathlib import Path
 
-import numpy as np
 import torch
-import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from .data import ModelNetLikeDataset, collate_batch
-from .model import build_model
+from .inference import forward_vote_probs, load_classifier_checkpoint
 from .utils import load_config, load_labels, select_device, set_seed
 
 
@@ -162,15 +160,15 @@ def main() -> None:
     )
 
     device = select_device(args.use_gpu)
-    model = build_model(
-        settings["variant"],
-        num_classes=len(labels),
-        use_normals=settings["use_normals"],
+    model, _ = load_classifier_checkpoint(
+        checkpoint,
+        variant=settings["variant"],
         width=settings["width"],
         nsample=settings["nsample"],
-    ).to(device)
-    model.load_state_dict(ckpt["model"])
-    model.eval()
+        use_normals=settings["use_normals"],
+        num_classes=len(labels),
+        device=device,
+    )
 
     print(
         f"predict: checkpoint={checkpoint} data_root={data_root} split={args.test_split} "
@@ -183,22 +181,7 @@ def main() -> None:
     with torch.no_grad():
         for batch in tqdm(loader, desc="predict"):
             points = batch["points"].to(device)
-            probs = torch.zeros(points.shape[0], len(labels), device=device)
-            for vote_idx in range(args.votes):
-                vote_points = points.clone()
-                if vote_idx > 0:
-                    theta = torch.rand(points.shape[0], device=device) * 2 * np.pi
-                    c, s = torch.cos(theta), torch.sin(theta)
-                    x = vote_points[:, :, 0].clone()
-                    z = vote_points[:, :, 2].clone()
-                    vote_points[:, :, 0] = c[:, None] * x + s[:, None] * z
-                    vote_points[:, :, 2] = -s[:, None] * x + c[:, None] * z
-                    if vote_points.shape[-1] >= 6:
-                        nx = vote_points[:, :, 3].clone()
-                        nz = vote_points[:, :, 5].clone()
-                        vote_points[:, :, 3] = c[:, None] * nx + s[:, None] * nz
-                        vote_points[:, :, 5] = -s[:, None] * nx + c[:, None] * nz
-                probs += F.softmax(model(vote_points), dim=1)
+            probs = forward_vote_probs(model, points, args.votes)
             pred = probs.argmax(dim=1).cpu().tolist()
             rows.extend((sample_id, labels[class_idx]) for sample_id, class_idx in zip(batch["id"], pred))
 

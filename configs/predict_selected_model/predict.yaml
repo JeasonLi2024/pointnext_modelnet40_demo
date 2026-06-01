@@ -8,6 +8,13 @@
 # - pointnext_b_c64_rotate_stage2
 # - pointnext_b_c96_no_rotate_stage2
 
+# IMPORTANT:
+# selected_model is only a human-readable label. The prediction script does not
+# use it to auto-fill paths or architecture. When switching models, update every
+# field in the "Selected model parameters" block below, and also update
+# predict_batch_size / votes if the chosen model needs different inference
+# settings.
+
 selected_model: pointnext_s_c64_base_v2
 
 labels: labels/modelnet40.txt
@@ -15,7 +22,12 @@ test_data_root: modelnet40_test_data/modelnet40_normal_resampled
 test_split: test
 
 # ---- Selected model parameters ----
-# Change this block when switching models.
+# Change this block together when switching models:
+# 1. selected_model: model name used for notes and result tracking.
+# 2. checkpoint: the exact best.pt to load.
+# 3. out_csv: a model-specific output path, so predictions are not overwritten.
+# 4. variant / width / nsample / use_normals: must match the trained model
+#    architecture. A mismatch will usually fail to load the checkpoint.
 checkpoint: runs/pointnext_s_c64_base_v2/best.pt
 out_csv: runs/pointnext_s_c64_base_v2/赛道1-李文睿2023210965-王俊涛2023210952-孙奥翔2023210958.csv
 variant: s
@@ -25,6 +37,9 @@ use_normals: true
 
 # Prediction settings. For no-rotation models, keep votes=1. For rotation
 # models, compare votes=1 and votes=3 first; avoid votes=10 unless it improves.
+# Also adjust predict_batch_size when switching model size or point count:
+# B/C64 usually uses 32 at 2048 points; B/C96 usually uses 24 at 2048 points;
+# S/C64 can usually use 64 at 2048 points.
 predict_num_points: 2048
 votes: 1
 predict_batch_size: 64
