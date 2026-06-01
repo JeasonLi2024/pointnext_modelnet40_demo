@@ -17,7 +17,7 @@ env/
 # Local data and training artifacts
 modelnet40_train_data/
 modelnet40_test_data/
-runs/
+
 data_toy/
 *.pt
 *.pth
