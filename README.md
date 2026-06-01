@@ -27,7 +27,8 @@ pointnext_modelnet40_demo/
       stage1.yaml
       stage2.yaml
     predict_selected_model/
-      predict.yaml                # 统一预测入口，通过改配置切换 checkpoint
+      predict.yaml                # 单模型预测：改配置切换 checkpoint
+      ensemble.yaml               # 多模型概率集成预测
   labels/
     modelnet40.txt                # ModelNet40 类别名称
   notebooks/
@@ -37,7 +38,9 @@ pointnext_modelnet40_demo/
     data.py                       # 点云读取、采样、归一化、增强、Dataset
     model.py                      # PointNeXt 风格分类模型
     train.py                      # 训练入口，读取配置并保存 best.pt/history.json
-    predict.py                    # 预测入口，加载 best.pt 输出 CSV
+    predict.py                    # 单模型预测入口，加载 best.pt 输出 CSV
+    predict_ensemble.py           # 多模型概率集成预测
+    inference.py                  # 单模型 votes 与 checkpoint 加载（predict / ensemble 共用）
     utils.py                      # 随机种子、配置、标签、保存工具
 ```
 
@@ -362,6 +365,97 @@ airplane_0628,chair
 ```
 
 `votes` 越大耗时近似线性增加。对当前无旋转训练模型，第一轮实测 `votes=10` 明显低于 `votes=1`，因此不要盲目增加投票次数。
+
+### 6.1 概率集成预测
+
+当已训练多个 checkpoint（例如 S/C64 base_v2、B/C64 无旋转 stage2、B/C64 旋转 stage2、B/C96 stage2）时，可以把它们的 **softmax 概率加权平均** 后再取 argmax，通常比单模型更稳，有利于冲击更高的 Test Instance / Class Accuracy。
+
+#### 原理
+
+对同一个测试样本：
+
+1. 每个模型先各自推理，得到 40 维类别概率向量 \(p^{(k)}\)（单模型内部若设置了 `votes`，会先对该模型做 Y 轴旋转投票再平均，得到 \(p^{(k)}\)）。
+2. 按权重做加权平均：\(\bar{p} = \sum_k w_k p^{(k)} / \sum_k w_k\)。
+3. 最终类别为 \(\arg\max \bar{p}\)。
+
+这比「多个模型各投一票、少数服从多数」更合理，因为保留了「有多确信」的信息。
+
+#### 与单模型 `votes` 的区别
+
+| 机制 | 作用范围 | 配置位置 |
+| --- | --- | --- |
+| 单模型 `votes` | 同一 checkpoint 多次旋转前向，平均概率 | `predict.yaml` 或各模型 `members[].votes` |
+| 概率集成 | 多个 checkpoint 的概率再平均 | `ensemble.yaml` 的 `members` 列表 |
+
+两者可以叠加：例如旋转 stage2 在集成成员里仍可设 `votes: 3`，无旋转成员保持 `votes: 1`。
+
+#### 使用方法
+
+集成配置在 `configs/predict_selected_model/ensemble.yaml`。默认包含四个已训练模型的等权集成（`weight: 1.0`）。
+
+在虚拟环境中执行（命令固定，改 YAML 即可换成员或权重）：
+
+```bat
+venv\Scripts\activate.bat
+python -m src.pointnext_demo.predict_ensemble --config configs/predict_selected_model/ensemble.yaml
+```
+
+PowerShell 等价命令：
+
+```powershell
+python -m src.pointnext_demo.predict_ensemble --config configs/predict_selected_model/ensemble.yaml
+```
+
+默认输出：`runs/predict_compare/ensemble_prob_avg_4models.csv`。若 `eval_on_test: true` 且测试目录带类别标签，结束后会打印 Test Instance / Class Accuracy。
+
+#### `ensemble.yaml` 主要字段
+
+- `test_data_root`、`test_split`：与单模型预测相同，测试集根目录下应有 `test/<class>/*.txt`。
+- `out_csv`：集成后的提交文件路径，建议与单模型结果分开命名。
+- `predict_num_points`：成员未单独指定时的默认推理点数（默认 2048）。
+- `predict_batch_size`：**全局推理 batch**，所有成员在同一步处理相同样本；未设置时取各成员 `predict_batch_size` 的最小值。四模型同卡集成时建议 `16`～`24`，不要给每个成员设不同 batch。
+- `members`：参与集成的模型列表；至少 1 项。每项需包含：
+
+| 字段 | 说明 |
+| --- | --- |
+| `name` | 备注名，仅用于日志 |
+| `checkpoint` | 该模型的 `best.pt` 路径 |
+| `variant`、`width`、`nsample`、`use_normals` | 必须与训练该权重时一致 |
+| `votes` | 该模型内部的旋转投票次数；无旋转模型用 `1`，旋转 stage2 可试 `3` |
+| `weight` | 集成权重；全为 `1.0` 即简单平均，可给更强模型更大权重 |
+| `predict_batch_size` | 可选；仅在该成员单独推理时使用。集成时以顶层 `predict_batch_size` 为准 |
+
+示例（只集成两个主力模型）：
+
+```yaml
+out_csv: runs/predict_compare/ensemble_no_rotate_plus_rotate.csv
+members:
+  - name: pointnext_b_c64_no_rotate_stage2
+    checkpoint: runs/pointnext_b_c64_no_rotate_stage2/best.pt
+    variant: b
+    width: 64
+    nsample: 32
+    use_normals: true
+    votes: 1
+    weight: 1.0
+    predict_batch_size: 32
+  - name: pointnext_b_c64_rotate_stage2
+    checkpoint: runs/pointnext_b_c64_rotate_stage2/best.pt
+    variant: b
+    width: 64
+    nsample: 32
+    use_normals: true
+    votes: 3
+    weight: 1.0
+    predict_batch_size: 32
+```
+
+#### 注意事项
+
+- 所有成员的 `test_data_root` / `test_split` 必须一致；脚本会校验各成员看到的 `sample_id` 顺序一致。
+- 集成时会把多个模型同时加载到内存/显存，成员越多占用越大；显存紧张时可减少 `members` 数量或降低顶层 `predict_batch_size`（各成员 batch 必须一致，否则会报 tensor 尺寸不匹配）。
+- 仅保存了各类别名的 CSV **无法** 事后做概率集成；需要集成时请直接运行 `predict_ensemble.py`，或自行扩展脚本保存概率矩阵（`.npy`）。
+- 批量对比多个单模型指标时，可使用 `scripts/run_model_comparison_predict.py`；正式提交集成结果请用 `predict_ensemble`。
 
 ## 7. Jupyter Notebook 训练
 

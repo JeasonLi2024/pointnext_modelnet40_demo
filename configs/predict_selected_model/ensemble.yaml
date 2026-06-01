@@ -8,6 +8,9 @@ test_data_root: modelnet40_test_data/modelnet40_normal_resampled
 test_split: test
 out_csv: runs/predict_compare/ensemble_prob_avg_4models.csv
 predict_num_points: 2048
+# All members share this batch size so each step processes the same samples.
+# Use 16-24 when four large models are loaded on one GPU.
+predict_batch_size: 24
 num_workers: 8
 seed: 42
 use_gpu: true
