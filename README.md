@@ -29,6 +29,10 @@ pointnext_modelnet40_demo/
     predict_selected_model/
       predict.yaml                # 单模型预测：改配置切换 checkpoint
       ensemble.yaml               # 多模型概率集成预测
+      ensemble_class90.yaml       # 冲 Class≥90% 的加权集成
+    pointnext_b_c64_no_rotate/
+      stage1_class90.yaml         # Class≥90% 训练 stage1
+      stage2_class90.yaml         # Class≥90% 训练 stage2
   labels/
     modelnet40.txt                # ModelNet40 类别名称
   notebooks/
@@ -42,6 +46,8 @@ pointnext_modelnet40_demo/
     predict_ensemble.py           # 多模型概率集成预测
     inference.py                  # 单模型 votes 与 checkpoint 加载（predict / ensemble 共用）
     utils.py                      # 随机种子、配置、标签、保存工具
+  scripts/
+    run_model_comparison_predict.py  # 批量单模型预测对比
 ```
 
 训练数据目录 `modelnet40_train_data/` 被 `.gitignore` 排除，不会提交到 GitHub。
@@ -527,13 +533,11 @@ Class Accuracy >= 90%
 但需要注意：本项目是轻量自包含实现，不是完整复刻官方 OpenPoints。它更适合课程项目、可读性和本地直接运行；如果你必须最大化最终测试成绩，优先级建议如下：
 
 1. 首选：`pointnext_b_c64_no_rotate_stage1/2 + normals + predict_num_points=2048 + votes=1`。
-2. 对照：`pointnext_b_c64_rotate_stage1/2`，只在实测优于无旋转模型时使用。
-3. 如果 Class Accuracy 仍低于 90%，尝试 `pointnext_b_c96_no_rotate_stage1/2` 或微调类别权重。
-4. 如果最终成绩必须尽可能接近官方最佳结果，使用官方 OpenPoints/PointNeXt 代码和官方配置训练或加载官方预训练模型会更稳。
+2. 冲 Class≥90%：`pointnext_b_c64_no_rotate/stage1_class90.yaml` → `stage2_class90.yaml`，预测用 `ensemble_class90.yaml`。
+3. 对照：`pointnext_b_c64_rotate_stage1/2`，只在实测优于无旋转模型时使用。
+4. 若 Class 仍不足，尝试 `pointnext_b_c96_no_rotate_stage1/2` 或提高 `class_weight_power`。
 
 参考资料：
 
 - PyTorch 官方安装页：https://pytorch.org/get-started/locally/
-- OpenPoints ModelNet40 示例：https://guochengqian.github.io/PointNeXt/examples/modelnet/
-- OpenPoints / PointNeXt Model Zoo：https://guochengqian.github.io/PointNeXt/modelzoo/
 - PointNeXt 论文：https://arxiv.org/abs/2206.04670

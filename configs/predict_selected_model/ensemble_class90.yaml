@@ -1,0 +1,39 @@
+# Ensemble after class90 training. Prioritize the class90 checkpoint.
+labels: labels/modelnet40.txt
+test_data_root: modelnet40_test_data/modelnet40_normal_resampled
+test_split: test
+out_csv: runs/predict_compare/ensemble_class90_3models.csv
+predict_num_points: 2048
+predict_batch_size: 24
+num_workers: 8
+seed: 42
+use_gpu: true
+eval_on_test: true
+
+members:
+  - name: pointnext_b_c64_no_rotate_class90_stage2
+    checkpoint: runs/pointnext_b_c64_no_rotate_class90_stage2/best.pt
+    variant: b
+    width: 64
+    nsample: 32
+    use_normals: true
+    votes: 1
+    weight: 2.5
+
+  - name: pointnext_b_c64_no_rotate_stage2
+    checkpoint: runs/pointnext_b_c64_no_rotate_stage2/best.pt
+    variant: b
+    width: 64
+    nsample: 32
+    use_normals: true
+    votes: 1
+    weight: 1.5
+
+  - name: pointnext_b_c64_rotate_stage2
+    checkpoint: runs/pointnext_b_c64_rotate_stage2/best.pt
+    variant: b
+    width: 64
+    nsample: 32
+    use_normals: true
+    votes: 3
+    weight: 1.0

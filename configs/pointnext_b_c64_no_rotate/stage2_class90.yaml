@@ -1,0 +1,47 @@
+# PointNeXt-B/C64 no-rotation — Stage 2 (fine-tune for Class Accuracy >= 90%).
+# Resume from class90 stage1. Larger val split avoids tiny-val overfitting (2048 lesson).
+
+model_name: pointnext_b_c64_no_rotate_class90_stage2
+
+data_root: modelnet40_train_data/modelnet40_normal_resampled
+labels: labels/modelnet40.txt
+out_dir: runs/pointnext_b_c64_no_rotate_class90_stage2
+
+variant: b
+width: 64
+nsample: 32
+num_points: 1024
+use_normals: true
+
+random_rotate: false
+augment_strength: strong
+
+epochs: 300
+batch_size: 48
+lr: 0.00015
+weight_decay: 0.05
+label_smoothing: 0.05
+
+val_ratio: 0.12
+num_workers: 8
+seed: 45
+use_gpu: true
+
+use_class_weights: true
+class_weight_power: 0.75
+
+warmup_epochs: 10
+early_stop_patience: 100
+early_stop_min_delta: 0.001
+early_stop_metric: val_class_acc
+
+resume_checkpoint: runs/pointnext_b_c64_no_rotate_class90_stage1/best.pt
+
+test_data_root: modelnet40_test_data/modelnet40_normal_resampled
+test_split: test
+checkpoint: runs/pointnext_b_c64_no_rotate_class90_stage2/best.pt
+out_csv: runs/pointnext_b_c64_no_rotate_class90_stage2/test_predictions_class90.csv
+votes: 1
+predict_num_points: 2048
+predict_batch_size: 32
+eval_on_test: true

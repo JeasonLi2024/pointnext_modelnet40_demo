@@ -1,0 +1,47 @@
+# PointNeXt-B/C64 no-rotation model - Stage 2 (2048 training points).
+# Fine-tune from stage1_2048. Does not overwrite runs/pointnext_b_c64_no_rotate_stage2.
+
+model_name: pointnext_b_c64_no_rotate_2048_stage2
+
+data_root: modelnet40_train_data/modelnet40_normal_resampled
+labels: labels/modelnet40.txt
+out_dir: runs/pointnext_b_c64_no_rotate_2048_stage2
+
+variant: b
+width: 64
+nsample: 32
+num_points: 2048
+use_normals: true
+
+random_rotate: false
+augment_strength: normal
+
+epochs: 250
+batch_size: 24
+lr: 0.0002
+weight_decay: 0.0001
+label_smoothing: 0.2
+
+val_ratio: 0.10
+num_workers: 8
+seed: 43
+use_gpu: true
+
+use_class_weights: true
+class_weight_power: 0.5
+
+warmup_epochs: 5
+early_stop_patience: 80
+early_stop_min_delta: 0.0005
+early_stop_metric: val_class_acc
+
+resume_checkpoint: runs/pointnext_b_c64_no_rotate_2048_stage1/best.pt
+
+test_data_root: modelnet40_test_data/modelnet40_normal_resampled
+test_split: test
+checkpoint: runs/pointnext_b_c64_no_rotate_2048_stage2/best.pt
+out_csv: runs/pointnext_b_c64_no_rotate_2048_stage2/赛道1-李文睿2023210965-王俊涛2023210952-孙奥翔2023210958.csv
+votes: 1
+predict_num_points: 2048
+predict_batch_size: 24
+eval_on_test: true

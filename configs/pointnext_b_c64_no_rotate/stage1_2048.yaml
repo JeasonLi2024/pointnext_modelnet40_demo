@@ -1,0 +1,49 @@
+# PointNeXt-B/C64 no-rotation model - Stage 1 (2048 training points).
+# Train and inference both use 2048 points. Tuned for RTX 4090 24GB; reduce
+# batch_size to 16 if OOM.
+
+model_name: pointnext_b_c64_no_rotate_2048_stage1
+
+data_root: modelnet40_train_data/modelnet40_normal_resampled
+labels: labels/modelnet40.txt
+out_dir: runs/pointnext_b_c64_no_rotate_2048_stage1
+
+variant: b
+width: 64
+nsample: 32
+num_points: 2048
+use_normals: true
+
+random_rotate: false
+augment_strength: normal
+
+epochs: 600
+batch_size: 24
+lr: 0.001
+weight_decay: 0.0001
+label_smoothing: 0.2
+
+val_ratio: 0.15
+num_workers: 8
+seed: 42
+use_gpu: true
+
+use_class_weights: true
+class_weight_power: 0.5
+
+warmup_epochs: 20
+early_stop_patience: 150
+early_stop_min_delta: 0.0005
+early_stop_metric: val_class_acc
+
+resume_checkpoint: null
+
+# --- Prediction defaults (use stage2_2048 after two-stage training) ---
+test_data_root: modelnet40_test_data/modelnet40_normal_resampled
+test_split: test
+checkpoint: runs/pointnext_b_c64_no_rotate_2048_stage2/best.pt
+out_csv: runs/pointnext_b_c64_no_rotate_2048_stage2/赛道1-李文睿2023210965-王俊涛2023210952-孙奥翔2023210958.csv
+votes: 1
+predict_num_points: 2048
+predict_batch_size: 24
+eval_on_test: true
