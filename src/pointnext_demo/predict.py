@@ -22,6 +22,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--labels", default=None)
     parser.add_argument("--out-csv", default=None)
     parser.add_argument("--variant", choices=["s", "b"], default=None)
+    parser.add_argument(
+        "--architecture",
+        choices=["pointnext_legacy", "pointmlp", "pointmlp_elite"],
+        default=None,
+    )
     parser.add_argument("--width", type=int, default=None)
     parser.add_argument("--nsample", type=int, default=None)
     parser.add_argument("--num-points", type=int, default=None, help="Override predict_num_points / num_points.")
@@ -48,6 +53,7 @@ def parse_args() -> argparse.Namespace:
         "checkpoint": None,
         "out_csv": "runs/pointnext_s_c64_normals/submit.csv",
         "variant": "s",
+        "architecture": None,
         "width": 64,
         "nsample": 32,
         "num_points": 1024,
@@ -82,6 +88,7 @@ def parse_args() -> argparse.Namespace:
 def resolve_predict_settings(args: argparse.Namespace, train_args: dict) -> dict:
     """CLI/config first; checkpoint fills any remaining model fields."""
     variant = args.variant or train_args.get("variant", "s")
+    architecture = args.architecture or train_args.get("architecture", "pointnext_legacy")
     width = args.width or int(train_args.get("width", 64))
     nsample = args.nsample or int(train_args.get("nsample", 32))
     if args._cli_num_points is not None:
@@ -100,6 +107,7 @@ def resolve_predict_settings(args: argparse.Namespace, train_args: dict) -> dict
         batch_size = int(args.predict_batch_size or args.batch_size or train_args.get("batch_size", 16))
     return {
         "variant": variant,
+        "architecture": architecture,
         "width": width,
         "nsample": nsample,
         "num_points": int(num_points),
@@ -166,6 +174,8 @@ def main() -> None:
         width=settings["width"],
         nsample=settings["nsample"],
         use_normals=settings["use_normals"],
+        architecture=settings["architecture"],
+        model_num_points=int(train_args.get("num_points", settings["num_points"])),
         num_classes=len(labels),
         device=device,
     )

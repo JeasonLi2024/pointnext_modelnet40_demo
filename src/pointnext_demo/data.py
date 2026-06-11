@@ -92,6 +92,11 @@ def augment(points: np.ndarray, random_rotate: bool = False, strength: str = "no
         points = rotate_y(points)
     else:
         points = points.copy()
+    if strength == "official":
+        scale = np.random.uniform(2.0 / 3.0, 1.5)
+        shift = np.random.uniform(-0.2, 0.2, size=(1, 3)).astype(np.float32)
+        points[:, :3] = points[:, :3] * scale + shift
+        return points
     if strength == "strong":
         scale = np.random.uniform(0.75, 1.25)
         shift = np.random.uniform(-0.15, 0.15, size=(1, 3)).astype(np.float32)

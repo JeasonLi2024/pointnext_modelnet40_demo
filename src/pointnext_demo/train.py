@@ -21,6 +21,7 @@ def default_train_config() -> dict:
         "labels": "labels/modelnet40.txt",
         "out_dir": "runs/pointnext_s_c64_normals",
         "variant": "s",
+        "architecture": "pointnext_legacy",
         "width": 64,
         "nsample": 32,
         "num_points": 1024,
@@ -30,6 +31,9 @@ def default_train_config() -> dict:
         "epochs": 600,
         "batch_size": 16,
         "lr": 1e-3,
+        "optimizer": "adamw",
+        "momentum": 0.9,
+        "min_lr": 0.0,
         "weight_decay": 5e-2,
         "label_smoothing": 0.2,
         "val_ratio": 0.15,
@@ -37,12 +41,15 @@ def default_train_config() -> dict:
         "seed": 42,
         "use_gpu": True,
         "resume_checkpoint": None,
+        "reuse_resume_split": True,
         "use_class_weights": False,
         "class_weight_power": 0.5,
         "warmup_epochs": 0,
         "early_stop_patience": 0,
         "early_stop_min_delta": 0.0,
         "early_stop_metric": "val_class_acc",
+        "grad_clip_norm": 1.0,
+        "use_amp": True,
     }
 
 
@@ -67,6 +74,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--labels", default=None)
     parser.add_argument("--out-dir", default=None)
     parser.add_argument("--variant", choices=["s", "b"], default=None)
+    parser.add_argument(
+        "--architecture",
+        choices=["pointnext_legacy", "pointmlp", "pointmlp_elite"],
+        default=None,
+    )
     parser.add_argument("--width", type=int, default=None)
     parser.add_argument("--nsample", type=int, default=None)
     parser.add_argument("--num-points", type=int, default=None)
@@ -85,10 +97,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--use-gpu", dest="use_gpu", action="store_true", default=None)
     parser.add_argument("--cpu", dest="use_gpu", action="store_false")
     parser.add_argument("--resume-checkpoint", default=None)
+    parser.add_argument(
+        "--reuse-resume-split",
+        dest="reuse_resume_split",
+        action="store_true",
+        default=None,
+    )
+    parser.add_argument(
+        "--new-resume-split",
+        dest="reuse_resume_split",
+        action="store_false",
+    )
     parser.add_argument("--use-class-weights", dest="use_class_weights", action="store_true", default=None)
     parser.add_argument("--no-class-weights", dest="use_class_weights", action="store_false")
     parser.add_argument("--class-weight-power", type=float, default=None)
-    parser.add_argument("--augment-strength", choices=["normal", "strong"], default=None)
+    parser.add_argument("--augment-strength", choices=["official", "normal", "strong"], default=None)
+    parser.add_argument("--optimizer", choices=["adamw", "sgd"], default=None)
+    parser.add_argument("--momentum", type=float, default=None)
+    parser.add_argument("--min-lr", type=float, default=None)
+    parser.add_argument("--grad-clip-norm", type=float, default=None)
+    parser.add_argument("--use-amp", dest="use_amp", action="store_true", default=None)
+    parser.add_argument("--no-amp", dest="use_amp", action="store_false")
     parser.add_argument("--warmup-epochs", type=int, default=None)
     parser.add_argument("--early-stop-patience", type=int, default=None)
     parser.add_argument("--early-stop-min-delta", type=float, default=None)
@@ -146,12 +175,26 @@ def build_scheduler(optimizer: torch.optim.Optimizer, args: argparse.Namespace):
             optimizer, start_factor=0.01, end_factor=1.0, total_iters=warmup
         )
         cosine_sched = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=max(1, args.epochs - warmup)
+            optimizer, T_max=max(1, args.epochs - warmup), eta_min=args.min_lr
         )
         return torch.optim.lr_scheduler.SequentialLR(
             optimizer, schedulers=[warmup_sched, cosine_sched], milestones=[warmup]
         )
-    return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
+    return torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=args.epochs, eta_min=args.min_lr
+    )
+
+
+def build_optimizer(model: nn.Module, args: argparse.Namespace) -> torch.optim.Optimizer:
+    if args.optimizer == "sgd":
+        return torch.optim.SGD(
+            model.parameters(),
+            lr=args.lr,
+            momentum=args.momentum,
+            weight_decay=args.weight_decay,
+            nesterov=True,
+        )
+    return torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
 
 def metric_value(row: dict, metric: str) -> float:
@@ -163,10 +206,23 @@ def metric_value(row: dict, metric: str) -> float:
         return row["train_class_acc"]
     if metric == "train_acc":
         return row["train_acc"]
+    if metric == "val_composite":
+        return row["val_composite"]
     raise ValueError(f"unknown early_stop_metric: {metric}")
 
 
-def run_epoch(model, loader, criterion, optimizer, device, train: bool, num_classes: int) -> tuple[float, float, float]:
+def run_epoch(
+    model,
+    loader,
+    criterion,
+    optimizer,
+    device,
+    train: bool,
+    num_classes: int,
+    scaler=None,
+    use_amp: bool = False,
+    grad_clip_norm: float = 0.0,
+) -> tuple[float, float, float]:
     if loader is None:
         return 0.0, 0.0, 0.0
     model.train(train)
@@ -181,12 +237,27 @@ def run_epoch(model, loader, criterion, optimizer, device, train: bool, num_clas
         for batch in pbar:
             points = batch["points"].to(device)
             labels = batch["label"].to(device)
-            logits = model(points)
-            loss = criterion(logits, labels)
+            with torch.autocast(
+                device_type=device.type,
+                dtype=torch.float16,
+                enabled=use_amp and device.type == "cuda",
+            ):
+                logits = model(points)
+                loss = criterion(logits, labels)
             if train:
                 optimizer.zero_grad(set_to_none=True)
-                loss.backward()
-                optimizer.step()
+                if scaler is not None and scaler.is_enabled():
+                    scaler.scale(loss).backward()
+                    scaler.unscale_(optimizer)
+                    if grad_clip_norm > 0:
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    loss.backward()
+                    if grad_clip_norm > 0:
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
+                    optimizer.step()
             pred = logits.argmax(dim=1)
             correct += (pred == labels).sum().item()
             total += labels.numel()
@@ -213,6 +284,13 @@ def run_training(args: argparse.Namespace) -> dict:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    resume_ckpt = None
+    if args.resume_checkpoint:
+        resume_path = Path(args.resume_checkpoint)
+        if not resume_path.is_file():
+            raise FileNotFoundError(f"resume checkpoint not found: {resume_path}")
+        resume_ckpt = torch.load(resume_path, map_location="cpu")
+
     full_train = args.val_ratio <= 0
     if full_train:
         args.early_stop_metric = "train_class_acc"
@@ -237,7 +315,20 @@ def run_training(args: argparse.Namespace) -> dict:
         random_rotate=False,
         augment_strength="normal",
     )
-    train_indices, val_indices = stratified_split(train_dataset, args.val_ratio, args.seed)
+    if (
+        resume_ckpt is not None
+        and args.reuse_resume_split
+        and not full_train
+        and resume_ckpt.get("train_indices")
+        and resume_ckpt.get("val_indices")
+    ):
+        train_indices = list(resume_ckpt["train_indices"])
+        val_indices = list(resume_ckpt["val_indices"])
+        if max(train_indices + val_indices) >= len(train_dataset):
+            raise ValueError("resume checkpoint split indices do not match the current dataset")
+        print("reusing train/validation split from resume checkpoint")
+    else:
+        train_indices, val_indices = stratified_split(train_dataset, args.val_ratio, args.seed)
     train_set = Subset(train_dataset, train_indices)
     val_set = Subset(val_dataset, val_indices) if val_indices else None
 
@@ -268,15 +359,16 @@ def run_training(args: argparse.Namespace) -> dict:
         use_normals=args.use_normals,
         width=args.width,
         nsample=args.nsample,
+        architecture=args.architecture,
+        num_points=args.num_points,
     ).to(device)
 
-    if args.resume_checkpoint:
-        resume_path = Path(args.resume_checkpoint)
-        if not resume_path.is_file():
-            raise FileNotFoundError(f"resume checkpoint not found: {resume_path}")
-        ckpt = torch.load(resume_path, map_location="cpu")
-        model.load_state_dict(ckpt["model"])
-        print(f"loaded weights from {resume_path} (epoch {ckpt.get('epoch', '?')})")
+    if resume_ckpt is not None:
+        model.load_state_dict(resume_ckpt["model"])
+        print(
+            f"loaded weights from {args.resume_checkpoint} "
+            f"(epoch {resume_ckpt.get('epoch', '?')})"
+        )
 
     class_weights = None
     if args.use_class_weights:
@@ -284,13 +376,16 @@ def run_training(args: argparse.Namespace) -> dict:
         print(f"class weights enabled (power={args.class_weight_power})")
 
     criterion = build_criterion(args, class_weights, device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    optimizer = build_optimizer(model, args)
     scheduler = build_scheduler(optimizer, args)
+    scaler = torch.amp.GradScaler(
+        "cuda", enabled=bool(args.use_amp and device.type == "cuda")
+    )
 
     mode = "full-train" if full_train else f"train/val={len(train_set)}/{len(val_set)}"
     print(
         f"dataset={len(train_dataset)} {mode} channels={train_dataset.num_channels} "
-        f"classes={len(labels)} variant={args.variant} device={device}"
+        f"classes={len(labels)} architecture={args.architecture} variant={args.variant} device={device}"
     )
     print(
         f"aug: rotate={args.random_rotate} strength={args.augment_strength} "
@@ -309,11 +404,27 @@ def run_training(args: argparse.Namespace) -> dict:
 
     for epoch in range(1, args.epochs + 1):
         train_loss, train_acc, train_class_acc = run_epoch(
-            model, train_loader, criterion, optimizer, device, train=True, num_classes=len(labels)
+            model,
+            train_loader,
+            criterion,
+            optimizer,
+            device,
+            train=True,
+            num_classes=len(labels),
+            scaler=scaler,
+            use_amp=args.use_amp,
+            grad_clip_norm=args.grad_clip_norm,
         )
         if val_loader is not None:
             val_loss, val_acc, val_class_acc = run_epoch(
-                model, val_loader, criterion, optimizer, device, train=False, num_classes=len(labels)
+                model,
+                val_loader,
+                criterion,
+                optimizer,
+                device,
+                train=False,
+                num_classes=len(labels),
+                use_amp=args.use_amp,
             )
         else:
             val_loss, val_acc, val_class_acc = 0.0, 0.0, 0.0
@@ -327,6 +438,9 @@ def run_training(args: argparse.Namespace) -> dict:
             "val_loss": val_loss,
             "val_acc": val_acc,
             "val_class_acc": val_class_acc,
+            "val_composite": (
+                2 * val_acc * val_class_acc / max(val_acc + val_class_acc, 1e-12)
+            ),
             "lr": scheduler.get_last_lr()[0],
         }
         history.append(row)

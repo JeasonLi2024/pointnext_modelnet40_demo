@@ -475,19 +475,27 @@ Notebook 默认 `use_gpu=True`，有可用 CUDA GPU 时使用 GPU，否则自动
 
 ## 8. 当前模型架构
 
-当前选择的是自包含 PointNeXt 风格分类网络，不依赖完整 OpenPoints 工程：
+项目支持三种自包含架构，不依赖完整 OpenPoints 工程：
 
-- 输入：默认 `x,y,z,nx,ny,nz`，即 6 通道；可用 `--no-normals` 改为仅 `x,y,z`。
+- `pointnext_legacy`：原有 PointNeXt/PointNet++ 风格网络，用于兼容已经训练好的权重。
+- `pointmlp_elite`：约 0.72M 参数，适合作为高效主模型。
+- `pointmlp`：约 13.24M 参数，适合作为精度优先模型。
+
+公共输入与预处理：
+
+- 输入默认是 `x,y,z,nx,ny,nz` 6 通道，也可用 `--no-normals` 改为仅 `x,y,z`。
 - 点数：默认每个样本采样 `1024` 个点。
 - 预处理：中心化、单位球归一化、固定点数采样。
-- 数据增强：随机缩放、平移、jitter、point dropout；随机 Y 轴旋转默认关闭，可用 `--random-rotate` 开启。
-- 局部特征：FPS 采样 + kNN 分组，默认 `nsample=32`。
-- 主干：PointNeXt/PointNet++ 风格 Set Abstraction + residual MLP。
-- 默认宽度：`width=64`，即 C64。
-- 分类头：全局 max pooling + avg pooling 后接 `Linear 512 -> 256 -> 40`。
-- 损失：`CrossEntropyLoss(label_smoothing=0.2)`。
-- 优化器：`AdamW(lr=0.001, weight_decay=0.05)`。
-- 调度器：`CosineAnnealingLR`。
+- `augment_strength: official` 使用随机缩放和平移；原有 `normal/strong` 还包含 jitter 和 point dropout。
+- 对齐的 ModelNet40 默认关闭随机旋转，官方 PointNeXt 配置也注明 rotation does not help。
+
+PointMLP 新主干使用四级 FPS + kNN 局部分组、几何仿射归一化、局部残差 MLP 和全局最大池化。训练器同时支持：
+
+- `SGD + Nesterov` 或 `AdamW`；
+- CUDA 混合精度；
+- 梯度裁剪；
+- `val_composite`，即 Instance Accuracy 与 Class Accuracy 的调和平均，用于避免只优化其中一个指标。
+- 续训默认复用 checkpoint 中的训练/验证划分，避免 stage2 重新划分后把 stage1 已见样本当作验证集。
 
 训练中真正被学习和保存的模型权重包括：
 
@@ -520,7 +528,22 @@ Test Instance Accuracy >= 92%
 Class Accuracy >= 90%
 ```
 
-当前 PointNeXt-S/C64 方案是合适的。官方 OpenPoints / PointNeXt ModelNet40 结果中，PointNeXt-S(C=64) 报告约 `94.0` overall accuracy 和 `91.1` mean class accuracy，理论上高于你的目标线。
+现有已训练权重的独立测试集结果如下：
+
+| 方案 | Test Instance Accuracy | Class Accuracy |
+|---|---:|---:|
+| 原 B/C64 no-rotate stage2 | 91.05% | 87.78% |
+| 现有四模型概率集成 | 91.77% | 88.78% |
+
+因此，原实现尚未达到 `92% / 90%`。主要原因是它是简化的 PointNeXt 风格实现，不是官方 PointNeXt：每级只做一次局部分组，后续 residual MLP 不再聚合邻域，也没有官方 PointNeXt 的完整 InvResMLP/位置归一化设计。
+
+公开基线表明目标本身可实现：
+
+- PointNet：89.2% OA / 86.2% mAcc，不建议作为冲线模型。
+- PointNet++：使用法向量时论文报告 91.9% OA，仍缺少足够余量。
+- PointNeXt-S：官方论文报告约 93.2% OA / 90.8% mAcc；C64 配置约 94.0% OA。
+- PointMLP-elite：论文报告 94.0% OA / 90.9% mAcc，且只有约 0.68M 参数。
+- PointMLP：官方修正版报告约 94.1% OA / 91.5% mAcc。
 
 选择当前模型设计的原因：
 
@@ -530,14 +553,19 @@ Class Accuracy >= 90%
 - PointNeXt-S/C64 在精度、显存和训练时间之间比较均衡；相比更大的 PointNeXt-B，它更容易在普通单卡 GPU 上完整训练 600 epoch。
 - 项目没有直接引入完整 OpenPoints，是为了降低 Windows 环境下安装 CUDA 扩展和复杂依赖的风险；当前实现保留 PointNeXt 的关键思想，同时保持代码可读、可改、可在本目录直接运行。
 
-但需要注意：本项目是轻量自包含实现，不是完整复刻官方 OpenPoints。它更适合课程项目、可读性和本地直接运行；如果你必须最大化最终测试成绩，优先级建议如下：
+推荐训练顺序：
 
-1. 首选：`pointnext_b_c64_no_rotate_stage1/2 + normals + predict_num_points=2048 + votes=1`。
-2. 冲 Class≥90%：`pointnext_b_c64_no_rotate/stage1_class90.yaml` → `stage2_class90.yaml`，预测用 `ensemble_class90.yaml`。
-3. 对照：`pointnext_b_c64_rotate_stage1/2`，只在实测优于无旋转模型时使用。
-4. 若 Class 仍不足，尝试 `pointnext_b_c96_no_rotate_stage1/2` 或提高 `class_weight_power`。
+1. 先训练高效版：`python -m src.pointnext_demo.train --config configs/pointmlp_elite_c32.yaml`
+2. 再训练精度版：`python -m src.pointnext_demo.train --config configs/pointmlp_c64.yaml`
+3. 分别运行预测：`python -m src.pointnext_demo.predict --config <对应配置>`
+4. 两者都完成后，与原 B/C64 模型做概率集成；集成权重只能依据验证集选择，不能依据测试集反复调参。
+
+`pointmlp_elite_c32.yaml` 是推荐起点；若其 Class Accuracy 未达到 90%，再使用完整 `pointmlp_c64.yaml`。训练时保留法向量、1024 点和关闭随机旋转；不要默认改成 2048 点，因为 PointMLP 官方结果本身就是 1024 点，增加点数会显著提高计算量但不保证提升。
 
 参考资料：
 
 - PyTorch 官方安装页：https://pytorch.org/get-started/locally/
 - PointNeXt 论文：https://arxiv.org/abs/2206.04670
+- PointNeXt 官方实现：https://github.com/guochengqian/PointNeXt
+- PointMLP 论文：https://openreview.net/forum?id=3Pbra-_u76D
+- PointMLP 官方实现：https://github.com/ma-xu/pointMLP-pytorch

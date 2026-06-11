@@ -50,6 +50,7 @@ def resolve_member_settings(member: dict, defaults: argparse.Namespace) -> dict:
         "name": member["name"],
         "checkpoint": Path(member["checkpoint"]),
         "variant": member.get("variant"),
+        "architecture": member.get("architecture"),
         "width": member.get("width"),
         "nsample": member.get("nsample"),
         "use_normals": member.get("use_normals", True),
@@ -111,6 +112,7 @@ def main() -> None:
             width=spec["width"],
             nsample=spec["nsample"],
             use_normals=spec["use_normals"],
+            architecture=spec["architecture"],
             num_classes=len(labels),
             device=device,
         )
@@ -125,7 +127,7 @@ def main() -> None:
         print(
             f"  + {spec['name']}: {spec['checkpoint']} "
             f"variant={arch['variant']} width={arch['width']} points={spec['num_points']} "
-            f"votes={spec['votes']} weight={spec['weight']}"
+            f"architecture={arch['architecture']} votes={spec['votes']} weight={spec['weight']}"
         )
         if member_datasets and [item.sample_id for item in dataset.items] != [
             item.sample_id for item in member_datasets[0].items

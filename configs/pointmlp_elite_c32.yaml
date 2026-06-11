@@ -1,0 +1,51 @@
+# Lightweight PointMLP-elite configuration for ModelNet40.
+# The official paper reports 94.0% OA / 90.9% mAcc with xyz-only input.
+
+data_root: modelnet40_train_data/modelnet40_normal_resampled
+labels: labels/modelnet40.txt
+out_dir: runs/pointmlp_elite_c32_normals
+
+architecture: pointmlp_elite
+variant: s
+width: 32
+nsample: 24
+num_points: 1024
+use_normals: true
+
+random_rotate: false
+augment_strength: official
+
+epochs: 300
+batch_size: 32
+optimizer: sgd
+lr: 0.1
+momentum: 0.9
+min_lr: 0.005
+weight_decay: 0.0002
+label_smoothing: 0.2
+grad_clip_norm: 1.0
+use_amp: true
+
+val_ratio: 0.15
+num_workers: 4
+seed: 42
+use_gpu: true
+
+use_class_weights: true
+class_weight_power: 0.25
+
+warmup_epochs: 0
+early_stop_patience: 80
+early_stop_min_delta: 0.0002
+early_stop_metric: val_composite
+
+resume_checkpoint: null
+
+test_data_root: modelnet40_test_data/modelnet40_normal_resampled
+test_split: test
+checkpoint: runs/pointmlp_elite_c32_normals/best.pt
+out_csv: runs/pointmlp_elite_c32_normals/test_predictions.csv
+votes: 1
+predict_num_points: 1024
+predict_batch_size: 32
+eval_on_test: true

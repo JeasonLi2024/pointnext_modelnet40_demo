@@ -39,6 +39,8 @@ def load_classifier_checkpoint(
     width: int | None = None,
     nsample: int | None = None,
     use_normals: bool | None = None,
+    architecture: str | None = None,
+    model_num_points: int | None = None,
     num_classes: int,
     device: torch.device,
 ) -> tuple[torch.nn.Module, dict]:
@@ -49,6 +51,8 @@ def load_classifier_checkpoint(
         "width": int(width or train_args.get("width", 64)),
         "nsample": int(nsample or train_args.get("nsample", 32)),
         "use_normals": bool(train_args.get("use_normals", True)) if use_normals is None else use_normals,
+        "architecture": architecture or train_args.get("architecture", "pointnext_legacy"),
+        "model_num_points": int(model_num_points or train_args.get("num_points", 1024)),
     }
     model = build_model(
         settings["variant"],
@@ -56,6 +60,8 @@ def load_classifier_checkpoint(
         use_normals=settings["use_normals"],
         width=settings["width"],
         nsample=settings["nsample"],
+        architecture=settings["architecture"],
+        num_points=settings["model_num_points"],
     ).to(device)
     model.load_state_dict(ckpt["model"])
     model.eval()
