@@ -1,4 +1,5 @@
-# PointNeXt-B/C64 — Stage 2: full training set, fine-tune from stage1 best.pt
+# Archived PointNeXt-B/C64 rotation Stage 2 configuration.
+# This older experiment fine-tunes on the full training set.
 
 data_root: modelnet40_train_data/modelnet40_normal_resampled
 labels: labels/modelnet40.txt

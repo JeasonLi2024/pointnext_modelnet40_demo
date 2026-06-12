@@ -40,7 +40,7 @@ resume_checkpoint: runs/pointnext_b_c64_no_rotate_2048_stage1/best.pt
 test_data_root: modelnet40_test_data/modelnet40_normal_resampled
 test_split: test
 checkpoint: runs/pointnext_b_c64_no_rotate_2048_stage2/best.pt
-out_csv: runs/pointnext_b_c64_no_rotate_2048_stage2/赛道1-李文睿2023210965-王俊涛2023210952-孙奥翔2023210958.csv
+out_csv: runs/pointnext_b_c64_no_rotate_2048_stage2/test_predictions.csv
 votes: 1
 predict_num_points: 2048
 predict_batch_size: 24

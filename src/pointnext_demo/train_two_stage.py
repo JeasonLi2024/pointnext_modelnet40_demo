@@ -11,8 +11,8 @@ from .utils import load_config
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Two-stage PointNeXt training (B model).")
-    parser.add_argument("--stage1-config", default="configs/pointnext_b_c64_stage1.yaml")
-    parser.add_argument("--stage2-config", default="configs/pointnext_b_c64_stage2.yaml")
+    parser.add_argument("--stage1-config", default="configs/pointnext_b_c64_rotate/stage1.yaml")
+    parser.add_argument("--stage2-config", default="configs/pointnext_b_c64_rotate/stage2.yaml")
     parser.add_argument("--stage", choices=["1", "2", "both"], default="both")
     cli = parser.parse_args()
 

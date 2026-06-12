@@ -91,7 +91,7 @@ test_split: test
 checkpoint: runs/pointnext_s_c64_base_v2/best.pt
 
 # Submission CSV: column1=id, column2=class name, comma-separated, no header
-out_csv: runs/pointnext_s_c64_base_v2/赛道1-李文睿2023210965-王俊涛2023210952-孙奥翔2023210958.csv
+out_csv: runs/pointnext_s_c64_base_v2/test_predictions_base_v2.csv
 
 # No-rotation baseline: keep voting at 1. The first-round experiments showed
 # random rotation voting hurts aligned ModelNet40-style objects.

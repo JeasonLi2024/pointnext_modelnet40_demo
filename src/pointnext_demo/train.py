@@ -69,7 +69,7 @@ def namespace_from_config(config_path: str, overrides: dict | None = None) -> ar
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train PointNeXt-style classifier for ModelNet40.")
-    parser.add_argument("--config", default="configs/pointnext_s_c64.yaml")
+    parser.add_argument("--config", default="configs/pointnext_s_c64/pointnext_s_c64.yaml")
     parser.add_argument("--data-root", default=None)
     parser.add_argument("--labels", default=None)
     parser.add_argument("--out-dir", default=None)

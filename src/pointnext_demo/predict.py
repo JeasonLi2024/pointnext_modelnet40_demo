@@ -15,7 +15,7 @@ from .utils import load_config, load_labels, select_device, set_seed
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Predict ModelNet40 classes and export CSV.")
-    parser.add_argument("--config", default="configs/pointnext_s_c64.yaml")
+    parser.add_argument("--config", default="configs/pointnext_s_c64/pointnext_s_c64.yaml")
     parser.add_argument("--data-root", default=None, help="Override test_data_root or data_root from config.")
     parser.add_argument("--split", default=None)
     parser.add_argument("--checkpoint", default=None)

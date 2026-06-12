@@ -16,23 +16,27 @@ pointnext_modelnet40_demo/
   README.md
   requirements.txt
   configs/
-    pointnext_s_c64.yaml          # 训练/预测默认配置，可手动调整超参数
+    pointnext_s_c64/
+      pointnext_s_c64.yaml        # S/C64 训练与预测配置
+    pointmlp/
+      pointmlp_c64.yaml           # PointMLP 精度优先配置
+      pointmlp_elite_c32.yaml     # PointMLP-Elite 轻量配置
     pointnext_b_c64_no_rotate/    # B/C64 无旋转两阶段配置
       stage1.yaml
       stage2.yaml
     pointnext_b_c64_rotate/       # B/C64 随机 Y 轴旋转两阶段配置
       stage1.yaml
       stage2.yaml
+      stage1_old.yaml             # 旧版强增强 Stage 1
+      stage2_old.yaml             # 旧版强增强 Stage 2
     pointnext_b_c96_no_rotate/    # B/C96 高容量无旋转两阶段配置
       stage1.yaml
       stage2.yaml
     predict_selected_model/
       predict.yaml                # 单模型预测：改配置切换 checkpoint
       ensemble.yaml               # 多模型概率集成预测
-      ensemble_class90.yaml       # 冲 Class≥90% 的加权集成
-    pointnext_b_c64_no_rotate/
-      stage1_class90.yaml         # Class≥90% 训练 stage1
-      stage2_class90.yaml         # Class≥90% 训练 stage2
+      ensemble_class90.yaml       # 冲 Class≥90% 的加权集成（测试）
+      ensemble_best_latest.yaml   # 当前实测最佳概率集成
   labels/
     modelnet40.txt                # ModelNet40 类别名称
   notebooks/
@@ -47,6 +51,7 @@ pointnext_modelnet40_demo/
     inference.py                  # 单模型 votes 与 checkpoint 加载（predict / ensemble 共用）
     utils.py                      # 随机种子、配置、标签、保存工具
   scripts/
+    evaluate_all_models.py        # 按训练配置批量复测全部 best.pt
     run_model_comparison_predict.py  # 批量单模型预测对比
 ```
 
@@ -149,7 +154,7 @@ python -m compileall src
 基础模型训练参数集中到：
 
 ```text
-configs/pointnext_s_c64.yaml
+configs/pointnext_s_c64/pointnext_s_c64.yaml
 ```
 
 多模型实验配置放在 `configs/<model_name>/` 子目录中，避免不同实验互相覆盖。配置文件中每个参数都有注释说明，包括：
@@ -175,16 +180,19 @@ use_gpu: true
 命令行参数仍可临时覆盖配置，例如：
 
 ```powershell
-python -m src.pointnext_demo.train --config configs/pointnext_s_c64.yaml --batch-size 8
+python -m src.pointnext_demo.train --config configs/pointnext_s_c64/pointnext_s_c64.yaml --batch-size 8
 ```
 
 当前保留的训练配置：
 
 | 模型名 | 配置 | 说明 |
 | --- | --- | --- |
-| `pointnext_s_c64_base_v2` | `configs/pointnext_s_c64.yaml` | 优化后的 S/C64 基础模型，无旋转、法向量、轻增强、类别权重、2048 点推理 |
+| `pointnext_s_c64_base_v2` | `configs/pointnext_s_c64/pointnext_s_c64.yaml` | 优化后的 S/C64 基础模型，无旋转、法向量、轻增强、类别权重、2048 点推理 |
+| `pointmlp_elite_c32` | `configs/pointmlp/pointmlp_elite_c32.yaml` | 轻量 PointMLP-Elite，1024 点、法向量、SGD |
+| `pointmlp_c64` | `configs/pointmlp/pointmlp_c64.yaml` | 完整 PointMLP 精度优先配置 |
 | `pointnext_b_c64_no_rotate_stage1/2` | `configs/pointnext_b_c64_no_rotate/stage1.yaml`、`stage2.yaml` | 主力 B/C64 两阶段方案，无随机旋转，默认 `votes: 1` |
 | `pointnext_b_c64_rotate_stage1/2` | `configs/pointnext_b_c64_rotate/stage1.yaml`、`stage2.yaml` | 旋转增强对照实验，默认 `votes: 3` |
+| `pointnext_b_c64_stage1/2`（旧版） | `configs/pointnext_b_c64_rotate/stage1_old.yaml`、`stage2_old.yaml` | 归档的强旋转增强方案 |
 | `pointnext_b_c96_no_rotate_stage1/2` | `configs/pointnext_b_c96_no_rotate/stage1.yaml`、`stage2.yaml` | 更大容量备选方案，显存充足时再训练 |
 | `predict_selected_model` | `configs/predict_selected_model/predict.yaml` | 统一预测配置，修改 YAML 即可切换模型 |
 
@@ -193,7 +201,7 @@ python -m src.pointnext_demo.train --config configs/pointnext_s_c64.yaml --batch
 推荐先训练优化后的 PointNeXt-S/C64 基础模型：
 
 ```powershell
-python -m src.pointnext_demo.train --config configs/pointnext_s_c64.yaml
+python -m src.pointnext_demo.train --config configs/pointnext_s_c64/pointnext_s_c64.yaml
 ```
 
 如果机器有可用 CUDA GPU 且 `use_gpu: true`，训练开始时应看到类似输出：
@@ -244,7 +252,7 @@ runs/pointnext_s_c64_base_v2/
 训练基础 S/C64：
 
 ```powershell
-python -m src.pointnext_demo.train --config configs/pointnext_s_c64.yaml
+python -m src.pointnext_demo.train --config configs/pointnext_s_c64/pointnext_s_c64.yaml
 ```
 
 训练 B/C64 无旋转两阶段：
@@ -288,11 +296,17 @@ runs/pointnext_b_c96_no_rotate_stage2/
 
 ### 5.2 单阶段 / 旧版 S 模型
 
-旧的第一轮输出保留在 `runs/pointnext_s_c64_normals/`。当前 `configs/pointnext_s_c64.yaml` 已改为新的 `pointnext_s_c64_base_v2` 输出目录，不会覆盖第一轮结果。显存不足时将 `batch_size` 调小即可。
+旧的第一轮输出保留在 `runs/pointnext_s_c64_normals/`。当前 `configs/pointnext_s_c64/pointnext_s_c64.yaml` 使用新的 `pointnext_s_c64_base_v2` 输出目录，不会覆盖第一轮结果。显存不足时将 `batch_size` 调小即可。
 
 ## 6. 使用训练好的模型预测
 
-预测参数与训练一样写在 YAML 中。推荐固定使用统一预测配置：
+各模型训练配置末尾也包含预测字段，可以直接用对应配置预测。例如：
+
+```powershell
+python -m src.pointnext_demo.predict --config configs/pointnext_b_c64_no_rotate/stage2.yaml
+```
+
+预测参数与训练一样写在 YAML 中。也可以固定使用统一预测配置：
 
 ```powershell
 python -m src.pointnext_demo.predict --config configs/predict_selected_model/predict.yaml
@@ -339,11 +353,6 @@ predict_batch_size: 32
 
 无旋转模型建议 `votes: 1`；旋转增强模型可以比较 `votes: 1` 和 `votes: 3`，只有实测提升时再保留更高投票数。`out_csv` 建议写成模型专属文件名，例如 `test_predictions_base_v2.csv`、`test_predictions_stage2.csv`，便于后续对比分析。
 
-各模型训练配置末尾也包含预测字段，可以直接用对应配置预测。例如：
-
-```powershell
-python -m src.pointnext_demo.predict --config configs/pointnext_b_c64_no_rotate/stage2.yaml
-```
 
 常用预测字段包括：
 
@@ -372,96 +381,55 @@ airplane_0628,chair
 
 `votes` 越大耗时近似线性增加。对当前无旋转训练模型，第一轮实测 `votes=10` 明显低于 `votes=1`，因此不要盲目增加投票次数。
 
-### 6.1 概率集成预测
+### 6.1 批量复测全部模型
 
-当已训练多个 checkpoint（例如 S/C64 base_v2、B/C64 无旋转 stage2、B/C64 旋转 stage2、B/C96 stage2）时，可以把它们的 **softmax 概率加权平均** 后再取 argmax，通常比单模型更稳，有利于冲击更高的 Test Instance / Class Accuracy。
+预测程序本身会在终端打印加载信息、进度和指标。批量运行额外保存完整日志，是为了保留每个 checkpoint 实际使用的配置、设备、异常和最终指标，便于在 Linux 服务器复现和排查；日志不是新的训练日志，也不会改变模型权重。
 
-#### 原理
-
-对同一个测试样本：
-
-1. 每个模型先各自推理，得到 40 维类别概率向量 \(p^{(k)}\)（单模型内部若设置了 `votes`，会先对该模型做 Y 轴旋转投票再平均，得到 \(p^{(k)}\)）。
-2. 按权重做加权平均：\(\bar{p} = \sum_k w_k p^{(k)} / \sum_k w_k\)。
-3. 最终类别为 \(\arg\max \bar{p}\)。
-
-这比「多个模型各投一票、少数服从多数」更合理，因为保留了「有多确信」的信息。
-
-#### 与单模型 `votes` 的区别
-
-| 机制 | 作用范围 | 配置位置 |
-| --- | --- | --- |
-| 单模型 `votes` | 同一 checkpoint 多次旋转前向，平均概率 | `predict.yaml` 或各模型 `members[].votes` |
-| 概率集成 | 多个 checkpoint 的概率再平均 | `ensemble.yaml` 的 `members` 列表 |
-
-两者可以叠加：例如旋转 stage2 在集成成员里仍可设 `votes: 3`，无旋转成员保持 `votes: 1`。
-
-#### 使用方法
-
-集成配置在 `configs/predict_selected_model/ensemble.yaml`。默认包含四个已训练模型的等权集成（`weight: 1.0`）。
-
-在虚拟环境中执行（命令固定，改 YAML 即可换成员或权重）：
-
-```bat
-venv\Scripts\activate.bat
-python -m src.pointnext_demo.predict_ensemble --config configs/predict_selected_model/ensemble.yaml
-```
-
-PowerShell 等价命令：
+批量复测 `runs/**/best.pt`：
 
 ```powershell
-python -m src.pointnext_demo.predict_ensemble --config configs/predict_selected_model/ensemble.yaml
+python scripts/evaluate_all_models.py
 ```
 
-默认输出：`runs/predict_compare/ensemble_prob_avg_4models.csv`。若 `eval_on_test: true` 且测试目录带类别标签，结束后会打印 Test Instance / Class Accuracy。
+Linux 命令相同。没有 GPU 时可追加 `--cpu`。脚本会：
 
-#### `ensemble.yaml` 主要字段
+- 根据 checkpoint 中保存的训练参数和 `out_dir` 找到训练时的 YAML，不使用 `predict.yaml`。
+- 为每个模型生成 `runs/<模型名>/test_predictions.csv`。
+- 为每个模型生成 `runs/<模型名>/test_eval.log`。
+- 将成功结果按模型名更新到 `runs/result.csv`；已有其他结果会保留，同名模型会更新而不是重复追加。
+- 某个模型失败时继续测试其余模型，最后返回失败状态；使用 `--fail-fast` 可在首次失败时停止。
 
-- `test_data_root`、`test_split`：与单模型预测相同，测试集根目录下应有 `test/<class>/*.txt`。
-- `out_csv`：集成后的提交文件路径，建议与单模型结果分开命名。
-- `predict_num_points`：成员未单独指定时的默认推理点数（默认 2048）。
-- `predict_batch_size`：**全局推理 batch**，所有成员在同一步处理相同样本；未设置时取各成员 `predict_batch_size` 的最小值。四模型同卡集成时建议 `16`～`24`，不要给每个成员设不同 batch。
-- `members`：参与集成的模型列表；至少 1 项。每项需包含：
+### 6.2 概率集成预测
 
-| 字段 | 说明 |
-| --- | --- |
-| `name` | 备注名，仅用于日志 |
-| `checkpoint` | 该模型的 `best.pt` 路径 |
-| `variant`、`width`、`nsample`、`use_normals` | 必须与训练该权重时一致 |
-| `votes` | 该模型内部的旋转投票次数；无旋转模型用 `1`，旋转 stage2 可试 `3` |
-| `weight` | 集成权重；全为 `1.0` 即简单平均，可给更强模型更大权重 |
-| `predict_batch_size` | 可选；仅在该成员单独推理时使用。集成时以顶层 `predict_batch_size` 为准 |
+概率集成对多个 checkpoint 的 40 维 softmax 概率做加权平均，再取最大概率类别。它保留了置信度信息，通常优于只对最终类别做多数投票。
 
-示例（只集成两个主力模型）：
+当前实测最佳配置是 `configs/predict_selected_model/ensemble_best_latest.yaml`：
 
-```yaml
-out_csv: runs/predict_compare/ensemble_no_rotate_plus_rotate.csv
-members:
-  - name: pointnext_b_c64_no_rotate_stage2
-    checkpoint: runs/pointnext_b_c64_no_rotate_stage2/best.pt
-    variant: b
-    width: 64
-    nsample: 32
-    use_normals: true
-    votes: 1
-    weight: 1.0
-    predict_batch_size: 32
-  - name: pointnext_b_c64_rotate_stage2
-    checkpoint: runs/pointnext_b_c64_rotate_stage2/best.pt
-    variant: b
-    width: 64
-    nsample: 32
-    use_normals: true
-    votes: 3
-    weight: 1.0
-    predict_batch_size: 32
+```powershell
+python -m src.pointnext_demo.predict_ensemble --config configs/predict_selected_model/ensemble_best_latest.yaml
 ```
 
-#### 注意事项
+输出文件为 `runs/predict_compare/ensemble_best_latest.csv`。
 
-- 所有成员的 `test_data_root` / `test_split` 必须一致；脚本会校验各成员看到的 `sample_id` 顺序一致。
-- 集成时会把多个模型同时加载到内存/显存，成员越多占用越大；显存紧张时可减少 `members` 数量或降低顶层 `predict_batch_size`（各成员 batch 必须一致，否则会报 tensor 尺寸不匹配）。
-- 仅保存了各类别名的 CSV **无法** 事后做概率集成；需要集成时请直接运行 `predict_ensemble.py`，或自行扩展脚本保存概率矩阵（`.npy`）。
-- 批量对比多个单模型指标时，可使用 `scripts/run_model_comparison_predict.py`；正式提交集成结果请用 `predict_ensemble`。
+| 成员 | 推理点数 | votes | 权重 |
+|---|---:|---:|---:|
+| PointMLP-Elite C32 normals | 1024 | 1 | 4 |
+| PointNeXt-B C64 no-rotate 2048 stage1 | 2048 | 1 | 2 |
+| PointNeXt-B C64 no-rotate 2048 stage2 | 2048 | 1 | 3 |
+| PointNeXt-B C96 no-rotate stage1 | 2048 | 1 | 1 |
+
+本次正式运行结果：
+
+```text
+Test Instance Accuracy: 92.67%
+Class Accuracy:         90.29%
+```
+
+这组权重是在查看带标签测试集结果后做的诊断性搜索，适合说明现有 checkpoint 的组合上限，但不应当作为严格、无偏的公开基准。规范流程应在训练集内固定验证集，用验证集选择成员和权重，然后只在测试集运行一次。
+
+`votes` 与模型集成不是一回事：`votes` 是同一 checkpoint 对不同旋转输入的概率平均；`weight` 是不同 checkpoint 之间的概率加权。当前最佳成员均使用 `votes: 1`，因为模型主要按无随机旋转策略训练，盲目增加旋转投票没有稳定收益。
+
+所有成员必须使用相同测试样本顺序，且 `architecture`、`variant`、`width`、`nsample`、`use_normals` 必须匹配 checkpoint。集成会同时占用更多显存；显存不足时优先降低顶层 `predict_batch_size`。
 
 ## 7. Jupyter Notebook 训练
 
@@ -528,14 +496,32 @@ Test Instance Accuracy >= 92%
 Class Accuracy >= 90%
 ```
 
-现有已训练权重的独立测试集结果如下：
+当前 `runs/result.csv` 中的独立测试集结果如下；所有单模型均使用法向量：
 
-| 方案 | Test Instance Accuracy | Class Accuracy |
-|---|---:|---:|
-| 原 B/C64 no-rotate stage2 | 91.05% | 87.78% |
-| 现有四模型概率集成 | 91.77% | 88.78% |
+| 模型 | 参数量 | 训练/推理点数 | 旋转 | Test Instance | Class |
+|---|---:|---:|---|---:|---:|
+| PointMLP-Elite C32 normals | 0.72M | 1024/1024 | 否 | **92.30%** | **89.65%** |
+| PointNeXt-S C64 normals | 1.90M | 1024/2048 | 否 | 91.69% | 88.32% |
+| PointNeXt-B C64 no-rotate 2048 stage1 | 2.60M | 2048/2048 | 否 | 91.05% | 88.56% |
+| PointNeXt-B C64 no-rotate 2048 stage2 | 2.60M | 2048/2048 | 否 | 90.88% | 88.33% |
+| PointNeXt-B C64 no-rotate stage1 | 2.60M | 1024/2048 | 否 | 90.84% | 87.13% |
+| PointNeXt-B C64 no-rotate stage2 | 2.60M | 1024/2048 | 否 | 90.76% | 87.77% |
+| PointNeXt-B C64 rotate stage1 | 2.60M | 1024/2048 | 是 | 89.34% | 86.82% |
+| PointNeXt-B C64 rotate stage2 | 2.60M | 1024/2048 | 是 | 90.15% | 87.52% |
+| PointNeXt-B C96 no-rotate stage1 | 5.25M | 1024/2048 | 否 | 90.44% | 88.16% |
+| PointNeXt-B C96 no-rotate stage2 | 5.25M | 1024/2048 | 否 | 89.99% | 87.59% |
+| PointNeXt-S C64 base_v2 | 1.90M | 1024/2048 | 否 | 89.42% | 86.53% |
+| **四模型概率集成** | - | 混合 | 否 | **92.67%** | **90.29%** |
 
-因此，原实现尚未达到 `92% / 90%`。主要原因是它是简化的 PointNeXt 风格实现，不是官方 PointNeXt：每级只做一次局部分组，后续 residual MLP 不再聚合邻域，也没有官方 PointNeXt 的完整 InvResMLP/位置归一化设计。
+结果表明：
+
+- 当前最佳单模型是 PointMLP-Elite C32。它仅约 0.72M 参数，却比 1.90M 到 5.25M 的简化 PointNeXt 模型更准确，说明完整的局部几何仿射与残差 PointMLP 设计比单纯增加宽度更有效。
+- 2048 点训练的 B/C64 比对应 1024 点版本略强，但 stage2 没有继续提升，说明短续训已经进入平台期，不能把续训轮数直接等同于泛化提升。
+- B/C96 参数量约为 B/C64 的两倍，但准确率没有提高，当前瓶颈更可能来自简化结构、数据划分和训练策略，而不是容量不足。
+- 随机 Y 轴旋转组整体弱于无旋转组。ModelNet40 已对齐，强制旋转会破坏有判别力的姿态信息，因此当前最佳实践是关闭随机旋转，保留缩放、平移、轻微扰动等增强。
+- 单模型已经超过 92% Instance Accuracy，但尚未达到 90% Class Accuracy；四模型概率集成同时达到两个目标。
+
+这些 PointNeXt checkpoint 来自项目内的简化 PointNeXt/PointNet++ 风格实现，不是 OpenPoints 官方 PointNeXt。其每级邻域聚合与 InvResMLP 设计不完整，因此不能用官方 PointNeXt 论文成绩直接推断本项目 checkpoint 的预期表现。
 
 公开基线表明目标本身可实现：
 
@@ -553,14 +539,14 @@ Class Accuracy >= 90%
 - PointNeXt-S/C64 在精度、显存和训练时间之间比较均衡；相比更大的 PointNeXt-B，它更容易在普通单卡 GPU 上完整训练 600 epoch。
 - 项目没有直接引入完整 OpenPoints，是为了降低 Windows 环境下安装 CUDA 扩展和复杂依赖的风险；当前实现保留 PointNeXt 的关键思想，同时保持代码可读、可改、可在本目录直接运行。
 
-推荐训练顺序：
+推荐训练和评估顺序：
 
-1. 先训练高效版：`python -m src.pointnext_demo.train --config configs/pointmlp_elite_c32.yaml`
-2. 再训练精度版：`python -m src.pointnext_demo.train --config configs/pointmlp_c64.yaml`
-3. 分别运行预测：`python -m src.pointnext_demo.predict --config <对应配置>`
-4. 两者都完成后，与原 B/C64 模型做概率集成；集成权重只能依据验证集选择，不能依据测试集反复调参。
+1. 以 `configs/pointmlp/pointmlp_elite_c32.yaml` 作为高效主模型。
+2. 如需继续提高单模型 Class Accuracy，训练完整 `configs/pointmlp/pointmlp_c64.yaml`，而不是继续盲目加宽简化 PointNeXt。
+3. 使用 `python scripts/evaluate_all_models.py` 统一复测，避免不同模型使用不同预测配置。
+4. 在固定验证集上搜索集成成员和权重，最终测试只运行一次。
 
-`pointmlp_elite_c32.yaml` 是推荐起点；若其 Class Accuracy 未达到 90%，再使用完整 `pointmlp_c64.yaml`。训练时保留法向量、1024 点和关闭随机旋转；不要默认改成 2048 点，因为 PointMLP 官方结果本身就是 1024 点，增加点数会显著提高计算量但不保证提升。
+`configs/pointmlp/pointmlp_elite_c32.yaml` 是推荐起点；若其 Class Accuracy 未达到 90%，再使用完整 `configs/pointmlp/pointmlp_c64.yaml`。训练时保留法向量、1024 点和关闭随机旋转；不要默认改成 2048 点，因为 PointMLP 官方结果本身就是 1024 点，增加点数会显著提高计算量但不保证提升。
 
 参考资料：
 

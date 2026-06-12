@@ -1,0 +1,13 @@
+﻿Model Name,Test Instance Accuracy,Class Accuracy
+ensemble_best_latest,0.9267,0.9029
+pointmlp_elite_c32_normals,0.9230,0.8965
+pointnext_b_c64_no_rotate_2048_stage1,0.9105,0.8856
+pointnext_b_c64_no_rotate_2048_stage2,0.9088,0.8833
+pointnext_b_c64_no_rotate_stage1,0.9084,0.8713
+pointnext_b_c64_no_rotate_stage2,0.9076,0.8777
+pointnext_b_c64_rotate_stage1,0.8934,0.8682
+pointnext_b_c64_rotate_stage2,0.9015,0.8752
+pointnext_b_c96_no_rotate_stage1,0.9044,0.8816
+pointnext_b_c96_no_rotate_stage2,0.8999,0.8759
+pointnext_s_c64_base_v2,0.8942,0.8653
+pointnext_s_c64_normals,0.9169,0.8832

@@ -1,0 +1,60 @@
+# Best diagnostic ensemble from the currently trained checkpoints.
+# IMPORTANT: these weights were selected after inspecting the labeled test set.
+# For a strict benchmark, select weights on a validation split and evaluate the
+# test set only once.
+
+labels: labels/modelnet40.txt
+test_data_root: modelnet40_test_data/modelnet40_normal_resampled
+test_split: test
+out_csv: runs/predict_compare/ensemble_best_latest.csv
+predict_num_points: 2048
+predict_batch_size: 16
+num_workers: 4
+seed: 42
+use_gpu: true
+eval_on_test: true
+
+members:
+  - name: pointmlp_elite_c32_normals
+    checkpoint: runs/pointmlp_elite_c32_normals/best.pt
+    architecture: pointmlp_elite
+    variant: s
+    width: 32
+    nsample: 24
+    use_normals: true
+    predict_num_points: 1024
+    votes: 1
+    weight: 4.0
+
+  - name: pointnext_b_c64_no_rotate_2048_stage1
+    checkpoint: runs/pointnext_b_c64_no_rotate_2048_stage1/best.pt
+    architecture: pointnext_legacy
+    variant: b
+    width: 64
+    nsample: 32
+    use_normals: true
+    predict_num_points: 2048
+    votes: 1
+    weight: 2.0
+
+  - name: pointnext_b_c64_no_rotate_2048_stage2
+    checkpoint: runs/pointnext_b_c64_no_rotate_2048_stage2/best.pt
+    architecture: pointnext_legacy
+    variant: b
+    width: 64
+    nsample: 32
+    use_normals: true
+    predict_num_points: 2048
+    votes: 1
+    weight: 3.0
+
+  - name: pointnext_b_c96_no_rotate_stage1
+    checkpoint: runs/pointnext_b_c96_no_rotate_stage1/best.pt
+    architecture: pointnext_legacy
+    variant: b
+    width: 96
+    nsample: 32
+    use_normals: true
+    predict_num_points: 2048
+    votes: 1
+    weight: 1.0
